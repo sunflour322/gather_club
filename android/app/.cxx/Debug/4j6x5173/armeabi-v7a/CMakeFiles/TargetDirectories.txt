@@ -1,0 +1,2 @@
+/home/user/projects/gather_club/android/app/.cxx/Debug/4j6x5173/armeabi-v7a/CMakeFiles/edit_cache.dir
+/home/user/projects/gather_club/android/app/.cxx/Debug/4j6x5173/armeabi-v7a/CMakeFiles/rebuild_cache.dir
