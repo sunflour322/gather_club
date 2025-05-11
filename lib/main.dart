@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:gather_club/Example.dart';
+import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/nav_service/routes.dart';
+import 'package:gather_club/pages/auth_screen.dart';
+import 'package:gather_club/pages/reg_screen.dart';
 import 'package:provider/provider.dart';
 
 void main() async {
@@ -24,11 +28,31 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'CashFlow',
-      initialRoute: '/',
-      routes: routes,
+    return ChangeNotifierProvider(
+      create: (context) => AuthProvider(),
+      child: MaterialApp(
+        title: 'Auth Demo',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+        ),
+        initialRoute: '/',
+        routes: {
+          '/': (context) => FutureBuilder(
+                future: Provider.of<AuthProvider>(context, listen: false)
+                    .isLoggedIn(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Scaffold(
+                        body: Center(child: CircularProgressIndicator()));
+                  }
+                  return snapshot.data == true ? ExamplePage() : LoginScreen();
+                },
+              ),
+          '/login': (context) => LoginScreen(),
+          '/register': (context) => RegisterScreen(),
+          '/home': (context) => ExamplePage(),
+        },
+      ),
     );
   }
 }
