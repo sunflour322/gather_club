@@ -11,14 +11,17 @@ class AuthProvider with ChangeNotifier {
 
   Future<bool> login(String usernameOrEmail, String password) async {
     _isLoading = true;
+    _errorMessage = null;
     notifyListeners();
 
     try {
       final success = await _authService.login(usernameOrEmail, password);
-      _errorMessage = success ? null : 'Invalid credentials';
+      if (!success) {
+        _errorMessage = 'Invalid username or password';
+      }
       return success;
     } catch (e) {
-      _errorMessage = 'Connection error';
+      _errorMessage = 'Login failed: ${e.toString()}';
       return false;
     } finally {
       _isLoading = false;

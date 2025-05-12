@@ -4,20 +4,23 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthService {
-  static const String _baseUrl = 'http://192.168.0.104:8080/auth';
+  static const String _baseUrl = 'http://212.67.8.92:8080/auth';
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final http.Client _client = http.Client();
 
-  Future<bool> login(String usernameOrEmail, String passwordHash) async {
+  Future<bool> login(String usernameOrEmail, String password) async {
     try {
       final response = await _client.post(
         Uri.parse('$_baseUrl/login'),
         body: jsonEncode(LoginRequest(
           usernameOrEmail: usernameOrEmail,
-          passwordHash: passwordHash,
+          passwordHash: password, // Изменено
         ).toJson()),
         headers: {'Content-Type': 'application/json'},
       );
+
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final authResponse = AuthResponse.fromJson(jsonDecode(response.body));
@@ -26,6 +29,7 @@ class AuthService {
       }
       return false;
     } catch (e) {
+      print('Login error: $e');
       return false;
     }
   }
