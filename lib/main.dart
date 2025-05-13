@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:gather_club/Example.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/nav_service/nav_page.dart';
 import 'package:gather_club/nav_service/routes.dart';
 import 'package:gather_club/pages/auth_screen.dart';
 import 'package:gather_club/pages/reg_screen.dart';
 import 'package:provider/provider.dart';
+import 'package:yandex_maps_mapkit/init.dart' as init;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,10 +19,8 @@ void main() async {
   //       projectId: 'flutter-films-mukachev',
   //       storageBucket: 'flutter-films-mukachev.appspot.com'),
   // );
-
-  runApp(
-    const MyApp(),
-  );
+  init.initMapkit(apiKey: 'c9779f9c-08da-40fd-b236-5f3af3b435ba');
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -45,12 +45,12 @@ class MyApp extends StatelessWidget {
                     return Scaffold(
                         body: Center(child: CircularProgressIndicator()));
                   }
-                  return snapshot.data == true ? ExamplePage() : LoginScreen();
+                  return snapshot.data == true ? NavPage() : LoginScreen();
                 },
               ),
           '/login': (context) => LoginScreen(),
           '/register': (context) => RegisterScreen(),
-          '/home': (context) => ExamplePage(),
+          '/home': (context) => NavPage(),
         },
       ),
     );

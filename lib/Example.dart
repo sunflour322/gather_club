@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:yandex_maps_mapkit/mapkit.dart';
+import 'package:yandex_maps_mapkit/yandex_map.dart';
 
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
@@ -10,6 +14,7 @@ class ExamplePage extends StatefulWidget {
 }
 
 class _ExamplePageState extends State<ExamplePage> {
+  final Completer<MapWindow> _mapController = Completer();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -26,8 +31,13 @@ class _ExamplePageState extends State<ExamplePage> {
         ],
       ),
       body: Center(
-        child: Text('Welcome!'),
-      ),
+          child: SizedBox(
+        width: 300, // или MediaQuery.of(context).size.width
+        height: 300, // задайте нужную высоту
+        child: YandexMap(
+          onMapCreated: (mapWindow) => _mapController.complete(mapWindow),
+        ),
+      )),
     );
   }
 }

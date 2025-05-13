@@ -1,0 +1,1 @@
+/home/user/projects/gather_club/build/app/intermediates/cxx/Debug/4k4g3v5b/obj/arm64-v8a
