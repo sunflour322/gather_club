@@ -8,13 +8,13 @@ class AuthService {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final http.Client _client = http.Client();
 
-  Future<bool> login(String usernameOrEmail, String password) async {
+  Future<bool> login(String usernameOrEmail, String passwordHash) async {
     try {
       final response = await _client.post(
         Uri.parse('$_baseUrl/login'),
         body: jsonEncode(LoginRequest(
           usernameOrEmail: usernameOrEmail,
-          passwordHash: password, // Изменено
+          passwordHash: passwordHash, // Изменено
         ).toJson()),
         headers: {'Content-Type': 'application/json'},
       );
@@ -46,7 +46,6 @@ class AuthService {
         ).toJson()),
         headers: {'Content-Type': 'application/json'},
       );
-
       return response.statusCode == 200;
     } catch (e) {
       return false;

@@ -36,6 +36,9 @@ class AuthProvider with ChangeNotifier {
     try {
       final success = await _authService.register(username, email, password);
       _errorMessage = success ? null : 'Registration failed';
+      if (success) {
+        await _authService.login(username, password);
+      }
       return success;
     } catch (e) {
       _errorMessage = 'Connection error';
