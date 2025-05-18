@@ -7,7 +7,6 @@ import 'package:gather_club/nav_service/routes.dart';
 import 'package:gather_club/pages/auth_page.dart';
 import 'package:gather_club/pages/reg_page.dart';
 import 'package:provider/provider.dart';
-import 'package:yandex_maps_mapkit/init.dart' as init;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +18,6 @@ void main() async {
   //       projectId: 'flutter-films-mukachev',
   //       storageBucket: 'flutter-films-mukachev.appspot.com'),
   // );
-  init.initMapkit(apiKey: 'c9779f9c-08da-40fd-b236-5f3af3b435ba');
   runApp(const MyApp());
 }
 
@@ -31,7 +29,7 @@ class MyApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (context) => AuthProvider(),
       child: MaterialApp(
-        title: 'Auth Demo',
+        title: 'GatherClub',
         theme: ThemeData(
           primarySwatch: Colors.orange,
         ),
