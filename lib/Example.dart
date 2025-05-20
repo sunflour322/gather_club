@@ -3,40 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/auth_service/auth_service.dart';
 import 'package:gather_club/map_service/location.dart';
+import 'package:gather_club/place_serice/place.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
-class Place {
-  final int placeId;
-  final String name;
-  final String? description;
-  final double latitude;
-  final double longitude;
-  final String? imageUrl;
-
-  Place({
-    required this.placeId,
-    required this.name,
-    this.description,
-    required this.latitude,
-    required this.longitude,
-    this.imageUrl,
-  });
-
-  factory Place.fromJson(Map<String, dynamic> json) {
-    return Place(
-      placeId: json['placeId'],
-      name: json['name'],
-      description: json['description'],
-      latitude: json['latitude'],
-      longitude: json['longitude'],
-      imageUrl: json['imageUrl'],
-    );
-  }
-}
 
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
@@ -52,7 +24,7 @@ class _ExamplePageState extends State<ExamplePage> {
   bool _isLoading = true;
   bool _hasLocationPermission = false;
   List<Place> _places = [];
-
+  AuthService _authService = new AuthService();
   @override
   void initState() {
     super.initState();
@@ -70,8 +42,7 @@ class _ExamplePageState extends State<ExamplePage> {
         Uri.parse(
             'http://212.67.8.92:8080/places/nearby?lat=55.751244&lng=49.145908&radiusKm=10'),
         headers: {
-          'Authorization':
-              'Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzIiwiaWF0IjoxNzQ3NjE3ODY3LCJleHAiOjE3NDc3MDQyNjd9.bw5GZXs2HcvxeH-Rgan74NS9T_r8Ub2jcPnC0Sz0mbrfXlLxZVykvUA582kfp6uMOooQaRCTKP3H0UVg0_Fn1w',
+          'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
       );
@@ -239,6 +210,11 @@ class _ExamplePageState extends State<ExamplePage> {
             IconButton(
               icon: const Icon(Icons.refresh),
               onPressed: _fetchPlaces,
+            ),
+          if (!_isLoading)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: _authService.logout,
             ),
         ],
       ),
