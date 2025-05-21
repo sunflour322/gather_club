@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/auth_service/auth_service.dart';
 import 'package:gather_club/map_service/location.dart';
 import 'package:gather_club/place_serice/place.dart';
+import 'package:gather_club/place_serice/place_info_dialog.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
@@ -61,61 +65,128 @@ class _ExamplePageState extends State<ExamplePage> {
     }
   }
 
-  void _addPlacesToMap() {
-    final placemarks = _places.map((place) {
-      return PlacemarkMapObject(
+  void _addPlacesToMap() async {
+    final placemarks = <PlacemarkMapObject>[];
+
+    for (final place in _places) {
+      // Размер миниатюры (в пикселях)
+      const thumbnailSize = 100;
+
+      // Создаём закруглённую квадратную миниатюру
+      final Uint8List? thumbnailBytes = place.imageUrl != null
+          ? await _createRoundedThumbnail(place.imageUrl!, thumbnailSize)
+          : null;
+
+      placemarks.add(PlacemarkMapObject(
         mapId: MapObjectId('place_${place.placeId}'),
         point: Point(latitude: place.latitude, longitude: place.longitude),
-        icon: place.imageUrl != null
-            ? PlacemarkIcon.single(
-                PlacemarkIconStyle(
-                  image: BitmapDescriptor.fromAssetImage('assets/logo.png'),
-                  scale: 0.2,
-                ),
-              )
-            : PlacemarkIcon.single(
-                PlacemarkIconStyle(
-                  image: BitmapDescriptor.fromAssetImage('assets/logo.png'),
-                  scale: 0.5,
-                ),
-              ),
+        icon: PlacemarkIcon.single(
+          PlacemarkIconStyle(
+            image: thumbnailBytes != null
+                ? BitmapDescriptor.fromBytes(thumbnailBytes)
+                : BitmapDescriptor.fromAssetImage('assets/logo.png'),
+            scale: 1.0, // Масштаб 1:1, так как мы уже подготовили изображение
+          ),
+        ),
         opacity: 1,
         onTap: (mapObject, point) {
           _showPlaceInfo(place);
         },
-      );
-    }).toList();
+      ));
+    }
 
     setState(() {
       _mapObjects.addAll(placemarks);
     });
   }
 
+  Future<Uint8List?> _createRoundedThumbnail(String imageUrl, int size) async {
+    try {
+      // Загружаем изображение
+      final response = await http.get(Uri.parse(imageUrl));
+      if (response.statusCode != 200) return null;
+
+      final bytes = response.bodyBytes;
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      var image = frame.image;
+
+      // Обрезаем до квадрата
+      final cropSize = min(image.width, image.height);
+      final offsetX = (image.width - cropSize) ~/ 2;
+      final offsetY = (image.height - cropSize) ~/ 2;
+
+      image = await _cropImage(
+        image,
+        offsetX,
+        offsetY,
+        cropSize,
+        cropSize,
+      );
+
+      // Масштабируем до нужного размера
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+
+      // Создаём путь для закруглённого прямоугольника
+      final path = Path()
+        ..addRRect(RRect.fromRectAndRadius(
+          Rect.fromLTWH(0, 0, size.toDouble(), size.toDouble()),
+          Radius.circular(size * 0.2), // Закругление 20% от размера
+        ));
+
+      // Рисуем изображение с закруглёнными углами
+      canvas.clipPath(path);
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        Rect.fromLTWH(0, 0, size.toDouble(), size.toDouble()),
+        Paint(),
+      );
+
+      // Конвертируем в байты
+      final picture = recorder.endRecording();
+      final img = await picture.toImage(size, size);
+      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+
+      return byteData?.buffer.asUint8List();
+    } catch (e) {
+      print('Error creating thumbnail: $e');
+      return null;
+    }
+  }
+
+  Future<ui.Image> _cropImage(
+    ui.Image image,
+    int x,
+    int y,
+    int width,
+    int height,
+  ) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(
+          x.toDouble(), y.toDouble(), width.toDouble(), height.toDouble()),
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      Paint(),
+    );
+
+    final picture = recorder.endRecording();
+    return await picture.toImage(width, height);
+  }
+
   void _showPlaceInfo(Place place) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(place.name),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (place.description != null) Text(place.description!),
-            const SizedBox(height: 10),
-            if (place.imageUrl != null)
-              Image.network(
-                place.imageUrl!,
-                height: 50,
-                width: 50,
-              ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Закрыть'),
-          ),
-        ],
+      isScrollControlled: true, // Позволяет окну занимать большую часть экрана
+      backgroundColor:
+          Colors.transparent, // Прозрачный фон для красивого скругления
+      builder: (context) => PlaceInfoDialog(
+        place: place,
+        isLoading: false, // Установите true, если данные загружаются
       ),
     );
   }
