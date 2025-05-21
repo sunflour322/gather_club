@@ -8,7 +8,7 @@ class Place {
   final String? category;
   final String? workingHours;
   final String? phone;
-  final List<String>? userImages; // Фотографии от пользователей
+  final List<PlaceImage>? userImages; // Теперь отдельный класс для изображений
 
   Place({
     required this.placeId,
@@ -35,8 +35,49 @@ class Place {
       workingHours: json['workingHours'],
       phone: json['phone'],
       userImages: json['userImages'] != null
-          ? List<String>.from(json['userImages'])
+          ? (json['userImages'] as List)
+              .map((i) => PlaceImage.fromJson(i))
+              .toList()
           : null,
     );
   }
+}
+
+class PlaceImage {
+  final int imageId;
+  final String imageUrl;
+  final int? uploadedBy;
+  final DateTime uploadedAt;
+  final bool isApproved;
+  final int likes;
+  final int dislikes;
+
+  PlaceImage({
+    required this.imageId,
+    required this.imageUrl,
+    this.uploadedBy,
+    required this.uploadedAt,
+    required this.isApproved,
+    required this.likes,
+    required this.dislikes,
+  });
+
+  factory PlaceImage.fromJson(Map<String, dynamic> json) {
+    return PlaceImage(
+      imageId: json['imageId'],
+      imageUrl: json['imageUrl'],
+      uploadedBy: json['uploadedBy'],
+      uploadedAt: DateTime.parse(json['uploadedAt']),
+      isApproved: json['isApproved'],
+      likes: json['likes'] ?? 0,
+      dislikes: json['dislikes'] ?? 0,
+    );
+  }
+}
+
+class Reward {
+  final int amount;
+  final String currency;
+
+  Reward({required this.amount, required this.currency});
 }

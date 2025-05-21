@@ -4,26 +4,40 @@ import 'package:gather_club/place_serice/place.dart';
 class PlaceInfoDialog extends StatelessWidget {
   final Place place;
   final bool isLoading;
+  final List<PlaceImage>? initialImages;
+  final Function(Map<String, dynamic>)? onRouteBuilt;
+  final Function()? onRouteCleared;
 
   const PlaceInfoDialog({
     super.key,
     required this.place,
+    this.initialImages,
     this.isLoading = false,
+    this.onRouteBuilt,
+    this.onRouteCleared,
   });
 
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.6,
+      initialChildSize: 0.7,
       minChildSize: 0.5,
       maxChildSize: 0.9,
       builder: (context, scrollController) {
         return Container(
           decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
           padding: const EdgeInsets.all(16),
-          child: isLoading ? _buildShimmer() : _buildContent(),
+          child: isLoading
+              ? _buildShimmer()
+              : _PlaceContent(
+                  place: place,
+                  initialImages: initialImages,
+                  onRouteBuilt: onRouteBuilt,
+                  onRouteCleared: onRouteCleared,
+                ),
         );
       },
     );
@@ -33,127 +47,269 @@ class PlaceInfoDialog extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Images placeholder with like/dislike buttons
-        Stack(
+        // Placeholder для изображений
+        Container(
+          height: 250,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.grey[300],
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Placeholder для названия и категории
+        Row(
           children: [
-            Container(
-              height: 250,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(12),
+            Expanded(
+              child: Container(
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
             ),
-            Positioned(
-              right: 10,
-              top: 10,
-              child: Column(
-                children: [
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[400],
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[400],
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
+            const SizedBox(width: 16),
+            Container(
+              height: 24,
+              width: 80,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(6),
               ),
             ),
           ],
         ),
         const SizedBox(height: 16),
-
-        // Rest of the shimmer content...
-        // ... (остальной код _buildShimmer остается без изменений)
+        // Placeholder для описания
+        Container(
+          height: 60,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.grey[300],
+            borderRadius: BorderRadius.circular(6),
+          ),
+        ),
       ],
     );
   }
+}
 
-  Widget _buildContent() {
-    final userImages = place.userImages ?? [];
+class _PlaceContent extends StatefulWidget {
+  final Place place;
+  final List<PlaceImage>? initialImages;
+  final Function(Map<String, dynamic>)? onRouteBuilt;
+  final Function()? onRouteCleared;
+
+  const _PlaceContent({
+    required this.place,
+    required this.initialImages,
+    this.onRouteBuilt,
+    this.onRouteCleared,
+  });
+
+  @override
+  State<_PlaceContent> createState() => _PlaceContentState();
+}
+
+class _PlaceContentState extends State<_PlaceContent> {
+  late List<PlaceImage> _images;
+  int _currentImageIndex = 0;
+  bool _isLoadingImages = false;
+  bool _isRating = false;
+  bool _routeBuilt = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _images = widget.initialImages ?? [];
+    if (_images.isEmpty) {
+      _loadImages();
+    }
+  }
+
+  Future<void> _loadImages() async {
+    setState(() => _isLoadingImages = true);
+    try {
+      // Здесь должен быть вызов API для загрузки изображений
+      // Для примера просто имитируем загрузку
+      await Future.delayed(const Duration(seconds: 1));
+      setState(() => _isLoadingImages = false);
+    } catch (e) {
+      setState(() => _isLoadingImages = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка загрузки изображений: $e')),
+      );
+    }
+  }
+
+  Future<void> _buildRoute() async {
+    try {
+      // Имитация данных маршрута
+      final routeInfo = {
+        'origin': {
+          'lat': 55.751244,
+          'lng': 37.618423
+        }, // Текущее местоположение (заглушка)
+        'destination': {
+          'lat': widget.place.latitude,
+          'lng': widget.place.longitude
+        },
+        'polyline': 'fake_polyline_data',
+        'duration': '15 мин',
+        'distance': '2.5 км',
+      };
+
+      setState(() => _routeBuilt = true);
+      widget.onRouteBuilt?.call(routeInfo);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Маршрут построен')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка построения маршрута: $e')),
+      );
+    }
+  }
+
+  void _clearRoute() {
+    setState(() => _routeBuilt = false);
+    widget.onRouteCleared?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImages = _images.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Карусель фотографий с кнопками лайка/дизлайка
+        // Карусель фотографий
         Stack(
           children: [
-            // Карусель фотографий
             SizedBox(
               height: 250,
-              child: userImages.isEmpty
-                  ? Container(
-                      decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(12)),
-                      child: const Center(
-                        child: Icon(Icons.photo_library,
-                            size: 50, color: Colors.grey),
-                      ),
-                    )
-                  : PageView.builder(
-                      itemCount: userImages.length,
-                      itemBuilder: (context, index) {
-                        return ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.network(
-                            userImages[index],
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          ),
-                        );
-                      },
-                    ),
+              child: _isLoadingImages
+                  ? const Center(child: CircularProgressIndicator())
+                  : hasImages
+                      ? PageView.builder(
+                          itemCount: _images.length,
+                          onPageChanged: (index) =>
+                              setState(() => _currentImageIndex = index),
+                          itemBuilder: (context, index) {
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(
+                                _images[index].imageUrl,
+                                fit: BoxFit.cover,
+                                loadingBuilder: (context, child, progress) {
+                                  if (progress == null) return child;
+                                  return Center(
+                                    child: CircularProgressIndicator(
+                                      value: progress.expectedTotalBytes != null
+                                          ? progress.cumulativeBytesLoaded /
+                                              progress.expectedTotalBytes!
+                                          : null,
+                                    ),
+                                  );
+                                },
+                              ),
+                            );
+                          },
+                        )
+                      : _buildNoImagesPlaceholder(),
             ),
+
             // Кнопки лайка/дизлайка
-            if (userImages.isNotEmpty)
+            if (hasImages)
               Positioned(
                 right: 10,
                 top: 10,
                 child: Column(
                   children: [
-                    // Кнопка лайка
                     FloatingActionButton(
                       heroTag: 'like_btn',
-                      onPressed: () {
-                        // Обработка лайка
-                      },
+                      onPressed: _isRating ? null : () {},
                       backgroundColor: Colors.white,
-                      child: const Icon(Icons.thumb_up, color: Colors.green),
+                      child: _isRating
+                          ? const CircularProgressIndicator()
+                          : const Icon(Icons.thumb_up, color: Colors.green),
                     ),
                     const SizedBox(height: 16),
-                    // Кнопка дизлайка
                     FloatingActionButton(
                       heroTag: 'dislike_btn',
-                      onPressed: () {
-                        // Обработка дизлайка
-                      },
+                      onPressed: _isRating ? null : () {},
                       backgroundColor: Colors.white,
-                      child: const Icon(Icons.thumb_down, color: Colors.red),
+                      child: _isRating
+                          ? const CircularProgressIndicator()
+                          : const Icon(Icons.thumb_down, color: Colors.red),
                     ),
                   ],
                 ),
               ),
           ],
         ),
-        const SizedBox(height: 16),
 
+        // Статистика изображения
+        if (hasImages) _buildImageStats(_images[_currentImageIndex]),
+
+        // Информация о месте
+        _buildPlaceInfo(),
+
+        // Кнопки действий
+        _buildActionButtons(),
+      ],
+    );
+  }
+
+  Widget _buildNoImagesPlaceholder() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.photo_library, size: 50, color: Colors.grey),
+            SizedBox(height: 8),
+            Text('Нет фотографий'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageStats(PlaceImage image) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.thumb_up, size: 16, color: Colors.green),
+          const SizedBox(width: 4),
+          Text('${image.likes}'),
+          const SizedBox(width: 16),
+          const Icon(Icons.thumb_down, size: 16, color: Colors.red),
+          const SizedBox(width: 4),
+          Text('${image.dislikes}'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlaceInfo() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         // Название и категория
         Row(
           children: [
             Expanded(
               child: Text(
-                place.name,
+                widget.place.name,
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -167,7 +323,7 @@ class PlaceInfoDialog extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                place.category ?? 'Категория',
+                widget.place.category ?? 'Категория',
                 style: const TextStyle(color: Colors.blue),
               ),
             ),
@@ -176,9 +332,9 @@ class PlaceInfoDialog extends StatelessWidget {
         const SizedBox(height: 16),
 
         // Описание
-        if (place.description != null)
+        if (widget.place.description != null)
           Text(
-            place.description!,
+            widget.place.description!,
             style: const TextStyle(fontSize: 16),
           ),
         const SizedBox(height: 16),
@@ -189,51 +345,41 @@ class PlaceInfoDialog extends StatelessWidget {
             const Icon(Icons.access_time, size: 16),
             const SizedBox(width: 8),
             Text(
-              place.workingHours ?? '9:00 - 22:00',
+              widget.place.workingHours ?? '9:00 - 22:00',
               style: const TextStyle(fontSize: 14),
             ),
             const Spacer(),
             const Icon(Icons.phone, size: 16),
             const SizedBox(width: 8),
             Text(
-              place.phone ?? '+7 (XXX) XXX-XX-XX',
+              widget.place.phone ?? '+7 (XXX) XXX-XX-XX',
               style: const TextStyle(fontSize: 14),
             ),
           ],
         ),
-        const Spacer(),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
 
-        // Кнопки действий (стилизованные)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            // Кнопка маршрута
-            _buildActionButton(
-              icon: Icons.directions,
-              label: 'Маршрут',
-              onPressed: () {
-                // Прокладывание маршрута
-              },
-            ),
-
-            // Кнопка добавления фото
-            _buildActionButton(
-              icon: Icons.add_a_photo,
-              label: 'Добавить фото',
-              onPressed: () {
-                // Добавление фото
-              },
-            ),
-
-            // Кнопка получения валюты
-            _buildActionButton(
-              icon: Icons.monetization_on,
-              label: 'Получить монеты',
-              onPressed: () {
-                // Получение валюты
-              },
-            ),
-          ],
+  Widget _buildActionButtons() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildActionButton(
+          icon: Icons.directions,
+          label: 'Маршрут',
+          onPressed: _routeBuilt ? null : _buildRoute,
+        ),
+        _buildActionButton(
+          icon: Icons.add_a_photo,
+          label: 'Добавить фото',
+          onPressed: () {},
+        ),
+        _buildActionButton(
+          icon: Icons.monetization_on,
+          label: 'Получить монеты',
+          onPressed: () {},
         ),
       ],
     );
@@ -242,14 +388,14 @@ class PlaceInfoDialog extends StatelessWidget {
   Widget _buildActionButton({
     required IconData icon,
     required String label,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           decoration: BoxDecoration(
-            color: Colors.black,
+            color: onPressed == null ? Colors.grey : Colors.black,
             borderRadius: BorderRadius.circular(20),
           ),
           child: IconButton(
@@ -260,7 +406,10 @@ class PlaceInfoDialog extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           label,
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(
+            fontSize: 12,
+            color: onPressed == null ? Colors.grey : Colors.black,
+          ),
         ),
       ],
     );
