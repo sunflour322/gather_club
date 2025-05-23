@@ -2,7 +2,7 @@ class User {
   final int userId;
   final String username;
   final String email;
-  final String passwordHash;
+  final String? passwordHash;
   final String? phoneNumber;
   final String? avatarUrl;
   final String? bio;
@@ -18,7 +18,7 @@ class User {
       {required this.userId,
       required this.username,
       required this.email,
-      required this.passwordHash,
+      this.passwordHash,
       this.phoneNumber,
       this.avatarUrl,
       this.bio,

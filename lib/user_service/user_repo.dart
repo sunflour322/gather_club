@@ -16,7 +16,7 @@ class UserRepository {
       if (token == null) return null;
 
       final response = await _client.get(
-        Uri.parse('http://212.67.8.92:8080/users/current-id'),
+        Uri.parse('$_baseUrl/current-id'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -68,7 +68,7 @@ class UserRepository {
       if (token == null) return null;
 
       final response = await _client.get(
-        Uri.parse('http://212.67.8.92:8080/users/$userId/avatar'),
+        Uri.parse('$_baseUrl/$userId/avatar'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

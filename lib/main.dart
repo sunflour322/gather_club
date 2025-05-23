@@ -18,6 +18,7 @@ void main() async {
   //       projectId: 'flutter-films-mukachev',
   //       storageBucket: 'flutter-films-mukachev.appspot.com'),
   // );
+
   runApp(const MyApp());
 }
 

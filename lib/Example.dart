@@ -22,24 +22,48 @@ class ExamplePage extends StatefulWidget {
   State<ExamplePage> createState() => _ExamplePageState();
 }
 
-class _ExamplePageState extends State<ExamplePage> {
+class _ExamplePageState extends State<ExamplePage>
+    with AutomaticKeepAliveClientMixin {
   final LocationService _locationService = LocationService();
   late YandexMapController _mapController;
   final List<MapObject> _mapObjects = [];
   bool _isLoading = true;
   bool _hasLocationPermission = false;
   List<Place> _places = [];
-  AuthService _authService = new AuthService();
+  AuthService _authService = AuthService();
   PolylineMapObject? _routePolyline;
   PlacemarkMapObject? _destinationPlacemark;
   String? _routeDuration;
   String? _routeDistance;
   bool _isRouteCalculating = false;
+  AppLatLong? location;
+  Point? _lastCameraPosition;
+  PlacemarkMapObject? _tempPlacemark;
+  TextEditingController _placeNameController = TextEditingController();
+  @override
+  bool get wantKeepAlive => true;
   @override
   void initState() {
     super.initState();
     _initLocation();
     _fetchPlaces();
+  }
+
+  void _saveCameraPosition() {
+    _mapController.getCameraPosition().then((position) {
+      _lastCameraPosition = position.target;
+    });
+  }
+
+// Восстанавливаем позицию при возврате
+  void _restoreCameraPosition() {
+    if (_lastCameraPosition != null) {
+      _mapController.moveCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: _lastCameraPosition!, zoom: 15),
+        ),
+      );
+    }
   }
 
   Future<void> _fetchPlaces() async {
@@ -100,7 +124,7 @@ class _ExamplePageState extends State<ExamplePage> {
         ),
         opacity: 1,
         onTap: (mapObject, point) {
-          _showPlaceInfo(place, placeImages);
+          _showPlaceInfo(place, placeImages, location!);
         },
       ));
     }
@@ -188,7 +212,8 @@ class _ExamplePageState extends State<ExamplePage> {
     return await picture.toImage(width, height);
   }
 
-  void _showPlaceInfo(Place place, List<PlaceImage> placeImages) {
+  void _showPlaceInfo(
+      Place place, List<PlaceImage> placeImages, AppLatLong location) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     showModalBottomSheet(
       context: context,
@@ -197,67 +222,124 @@ class _ExamplePageState extends State<ExamplePage> {
       builder: (context) => PlaceInfoDialog(
         place: place,
         initialImages: placeImages,
-        onRouteBuilt: (routeInfo) => _buildRoute(place, routeInfo),
+        onRouteBuilt: (routeInfo) => _buildRoute(place, routeInfo, location),
         onRouteCleared: _clearRoute,
+        location: location,
       ),
     );
   }
 
-  Future<void> _buildRoute(Place place, Map<String, dynamic> routeInfo) async {
-    setState(() {
-      _isRouteCalculating = true;
-      _routeDuration = routeInfo['duration'];
-      _routeDistance = routeInfo['distance'];
-    });
+  // Исправленный метод для запроса пешеходного маршрута
+  Future<PedestrianSessionResult> _requestPedestrianRoute(
+      Point startPoint, Point endPoint) async {
+    final points = [
+      RequestPoint(
+        point: startPoint,
+        requestPointType: RequestPointType.wayPoint,
+      ),
+      RequestPoint(
+        point: endPoint,
+        requestPointType: RequestPointType.wayPoint,
+      ),
+    ];
+
+    // Дожидаемся выполнения и получаем кортеж
+    final (session, resultFuture) = await YandexPedestrian.requestRoutes(
+        points: points,
+        // Новый формат параметров
+        avoidSteep: true,
+        timeOptions: TimeOptions() // Избегать крутых подъемов
+        );
+
+    // Теперь ждем выполнения Future<PedestrianSessionResult>
+    return await resultFuture;
+  }
+
+// Исправленный метод построения пешеходного маршрута
+  Future<void> _buildRoute(
+      Place place, Map<String, dynamic> routeInfo, AppLatLong location) async {
+    setState(() => _isRouteCalculating = true);
 
     try {
-      // Получаем текущее местоположение
-      final currentLocation = await _locationService.getCurrentLocation();
+      final startPoint =
+          Point(latitude: location.lat, longitude: location.long);
+      final endPoint =
+          Point(latitude: place.latitude, longitude: place.longitude);
 
-      // Создаем полилинию маршрута (в реальном приложении это должно приходить с бэкенда)
-      final routePoints = [
-        Point(latitude: currentLocation.lat, longitude: currentLocation.long),
-        Point(latitude: place.latitude, longitude: place.longitude),
-      ];
+      final result = await _requestPedestrianRoute(startPoint, endPoint);
 
-      // Обновляем маркер места назначения
-      final destinationPlacemark = PlacemarkMapObject(
-        mapId: MapObjectId('route_destination'),
-        point: Point(latitude: place.latitude, longitude: place.longitude),
-        icon: PlacemarkIcon.single(
-          PlacemarkIconStyle(
-            image:
-                BitmapDescriptor.fromAssetImage('assets/destination_pin.png'),
-            scale: 0.5,
+      if (result.routes != null && result.routes!.isNotEmpty) {
+        final route = result.routes!.first;
+
+        // Получаем данные о пешеходном маршруте (новый формат)
+        final timeText = route.metadata.weight.time.text;
+        final distanceText = route.metadata.weight.walkingDistance.text;
+
+        // Обновляем данные маршрута
+        setState(() {
+          _routeDuration = timeText;
+          _routeDistance = distanceText;
+        });
+
+        // Остальной код остается без изменений
+        final routePolyline = PolylineMapObject(
+          mapId: const MapObjectId('current_route'),
+          polyline: Polyline(points: route.geometry.points),
+          strokeColor: Colors.green.withOpacity(0.8),
+          strokeWidth: 4,
+          outlineColor: Colors.white,
+          outlineWidth: 1.5,
+          dashLength: 8,
+          gapLength: 4,
+        );
+
+        final destinationPlacemark = PlacemarkMapObject(
+          mapId: const MapObjectId('route_destination'),
+          point: endPoint,
+          icon: PlacemarkIcon.single(
+            PlacemarkIconStyle(
+              image: BitmapDescriptor.fromAssetImage(
+                  'assets/walking_destination.png'),
+              scale: 0.5,
+            ),
           ),
-        ),
-      );
+        );
 
-      // Создаем полилинию маршрута
-      final routePolyline = PolylineMapObject(
-        mapId: MapObjectId('current_route'),
-        polyline: Polyline(points: routePoints),
-        strokeColor: Colors.blue.withOpacity(0.7),
-        strokeWidth: 5,
-      );
+        setState(() {
+          _routePolyline = routePolyline;
+          _destinationPlacemark = destinationPlacemark;
+        });
 
-      // Обновляем состояние
-      setState(() {
-        _routePolyline = routePolyline;
-        _destinationPlacemark = destinationPlacemark;
-        _isRouteCalculating = false;
-      });
-
-      // Обновляем объекты карты
-      _updateMapObjects();
-
-      // Перемещаем камеру чтобы показать весь маршрут
-      await _showRouteOnMap(routePoints);
+        _updateMapObjects();
+        await _showRouteOnMap(route.geometry.points);
+      } else {
+        throw Exception('Не удалось построить пешеходный маршрут');
+      }
     } catch (e) {
-      setState(() => _isRouteCalculating = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка построения маршрута: ${e.toString()}')),
+        SnackBar(
+            content: Text(
+                'Ошибка построения пешеходного маршрута: ${e.toString()}')),
       );
+    } finally {
+      setState(() => _isRouteCalculating = false);
+    }
+  }
+
+  String _formatDuration(double seconds) {
+    final duration = Duration(seconds: seconds.toInt());
+    if (duration.inHours > 0) {
+      return '${duration.inHours} ч ${duration.inMinutes.remainder(60)} мин пешком';
+    } else {
+      return '${duration.inMinutes} мин пешком';
+    }
+  }
+
+  String _formatDistance(double meters) {
+    if (meters > 1000) {
+      return '${(meters / 1000).toStringAsFixed(1)} км';
+    } else {
+      return '${meters.toInt()} м';
     }
   }
 
@@ -273,10 +355,12 @@ class _ExamplePageState extends State<ExamplePage> {
 
   void _updateMapObjects() {
     setState(() {
+      // Удаляем старые объекты маршрута
       _mapObjects.removeWhere((obj) =>
           obj.mapId.value == 'current_route' ||
           obj.mapId.value == 'route_destination');
 
+      // Добавляем новые
       if (_routePolyline != null) {
         _mapObjects.add(_routePolyline!);
       }
@@ -289,20 +373,49 @@ class _ExamplePageState extends State<ExamplePage> {
   Future<void> _showRouteOnMap(List<Point> routePoints) async {
     if (routePoints.isEmpty) return;
 
-    // Центр маршрута
-    final middleIndex = routePoints.length ~/ 2;
-    final targetPoint = routePoints[middleIndex];
+    // Находим границы маршрута для оптимального отображения
+    double minLat = routePoints.first.latitude;
+    double maxLat = routePoints.first.latitude;
+    double minLon = routePoints.first.longitude;
+    double maxLon = routePoints.first.longitude;
+
+    for (final point in routePoints) {
+      minLat = min(minLat, point.latitude);
+      maxLat = max(maxLat, point.latitude);
+      minLon = min(minLon, point.longitude);
+      maxLon = max(maxLon, point.longitude);
+    }
+
+    // Вычисляем центр и зум для отображения всего маршрута
+    final centerLat = (minLat + maxLat) / 2;
+    final centerLon = (minLon + maxLon) / 2;
+
+    // Расчет подходящего зума на основе размера маршрута
+    final latDiff = maxLat - minLat;
+    final lonDiff = maxLon - minLon;
+    final maxDiff = max(latDiff, lonDiff);
+
+    double zoom;
+    if (maxDiff > 0.1) {
+      zoom = 11;
+    } else if (maxDiff > 0.05) {
+      zoom = 13;
+    } else if (maxDiff > 0.01) {
+      zoom = 15;
+    } else {
+      zoom = 16;
+    }
 
     await _mapController.moveCamera(
       CameraUpdate.newCameraPosition(
         CameraPosition(
-          target: targetPoint,
-          zoom: 15,
+          target: Point(latitude: centerLat, longitude: centerLon),
+          zoom: zoom,
         ),
       ),
       animation: const MapAnimation(
         type: MapAnimationType.smooth,
-        duration: 1,
+        duration: 1.5,
       ),
     );
   }
@@ -326,9 +439,9 @@ class _ExamplePageState extends State<ExamplePage> {
 
   Future<void> _moveToCurrentLocation() async {
     try {
-      final location = await _locationService.getCurrentLocation();
-      await _updateCamera(location.lat, location.long);
-      _addUserPlacemark(location.lat, location.long);
+      location = await _locationService.getCurrentLocation();
+      await _updateCamera(location!.lat, location!.long);
+      _addUserPlacemark(location!.lat, location!.long);
       // Обновляем места при изменении позиции
       await _fetchPlaces();
     } catch (e) {
@@ -377,6 +490,162 @@ class _ExamplePageState extends State<ExamplePage> {
     });
   }
 
+  void _handleMapLongPress(Point point) async {
+    // Создаем временную метку
+    final tempPlacemark = PlacemarkMapObject(
+      mapId: const MapObjectId('temp_placemark'),
+      point: point,
+      icon: PlacemarkIcon.single(
+        PlacemarkIconStyle(
+          image: BitmapDescriptor.fromAssetImage('assets/logo.png'),
+          scale: 0.8,
+          anchor: const Offset(0.5, 0.5),
+          rotationType: RotationType.noRotation,
+        ),
+      ),
+      opacity: 1.0,
+    );
+
+    setState(() {
+      // Удаляем предыдущую временную метку, если она существует
+      _mapObjects.removeWhere((obj) => obj.mapId.value == 'temp_placemark');
+      _mapObjects.add(tempPlacemark);
+      _tempPlacemark = tempPlacemark;
+    });
+
+    _showInteractionMenu(point);
+  }
+
+  void _showInteractionMenu(Point point) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: const BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.all(Radius.circular(2)),
+                    ),
+                  ),
+                ),
+                TextField(
+                  controller: _placeNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Название места',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey[100],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    if (location != null) {
+                      _buildRoute(
+                        Place(
+                          placeId: 0,
+                          name: _placeNameController.text,
+                          description: '',
+                          latitude: point.latitude,
+                          longitude: point.longitude,
+                          imageUrl: null,
+                        ),
+                        {},
+                        location!,
+                      );
+                    }
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.directions_walk),
+                  label: const Text('Построить маршрут'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // TODO: Реализовать сохранение метки
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.save),
+                  label: const Text('Сохранить метку'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // TODO: Реализовать создание встречи
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.group_add),
+                  label: const Text('Создать встречу'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ).then((_) {
+      // Удаляем временную метку при закрытии меню
+      setState(() {
+        if (_tempPlacemark != null) {
+          _mapObjects.removeWhere((obj) => obj.mapId.value == 'temp_placemark');
+          _tempPlacemark = null;
+        }
+        _placeNameController.clear();
+      });
+    });
+  }
+
   @override
   void dispose() {
     _mapController.dispose();
@@ -385,6 +654,7 @@ class _ExamplePageState extends State<ExamplePage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Интересные места'),
@@ -422,17 +692,20 @@ class _ExamplePageState extends State<ExamplePage> {
                 await _moveToCurrentLocation();
               }
             },
+            onMapLongTap: (Point point) {
+              _handleMapLongPress(point);
+            },
             mapObjects: _mapObjects,
             mapType: MapType.vector,
           ),
           if (_isLoading || _isRouteCalculating)
             const Center(child: CircularProgressIndicator()),
-          // Панель информации о маршруте
+          // Панель информации о пешеходном маршруте
           if (_routeDuration != null && _routeDistance != null)
             Positioned(
               bottom: 16,
               left: 16,
-              right: 16,
+              right: 100,
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -449,27 +722,39 @@ class _ExamplePageState extends State<ExamplePage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Маршрут построен',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[800],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.directions_walk,
+                                size: 20,
+                                color: Colors.green[700],
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Пешеходный маршрут',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Расстояние: $_routeDistance',
-                          style: TextStyle(color: Colors.grey[600]),
-                        ),
-                        Text(
-                          'Время: $_routeDuration',
-                          style: TextStyle(color: Colors.grey[600]),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            'Расстояние: $_routeDistance',
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                          Text(
+                            'Время: $_routeDuration',
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),

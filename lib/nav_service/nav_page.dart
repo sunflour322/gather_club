@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gather_club/Example.dart';
+import 'package:gather_club/pages/account_page.dart';
+import 'package:gather_club/pages/chat_page.dart';
 import 'package:gather_club/user_service/user_repo.dart';
 import 'package:google_nav_bar/google_nav_bar.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
@@ -15,8 +17,8 @@ class NavPage extends StatefulWidget {
 int _selectedIndex = 0;
 final _widgetOptions = [
   const ExamplePage(),
-  const ExamplePage(),
-  const ExamplePage(),
+  const ChatPage(),
+  const AccountPage(),
 ];
 
 class _NavPageState extends State<NavPage> {
@@ -35,15 +37,18 @@ class _NavPageState extends State<NavPage> {
   Future<void> _loadUserAvatar() async {
     try {
       final userId = await _userRepository.getCurrentUserId();
-      if (userId != null) {
+      if (userId != null && mounted) {
+        // Проверяем mounted
         final avatarUrl = await _userRepository.getUserAvatarUrl(userId);
-        print('Avatar URL: $avatarUrl'); // Добавим лог для отладки
-        setState(() {
-          _avatarUrl = avatarUrl;
-        });
+        if (mounted) {
+          // Еще одна проверка перед setState
+          setState(() {
+            _avatarUrl = avatarUrl;
+          });
+        }
       }
     } catch (e) {
-      print('Error loading avatar: $e');
+      debugPrint('Error loading avatar: $e');
     }
   }
 
@@ -66,18 +71,19 @@ class _NavPageState extends State<NavPage> {
     }
   }
 
-  @override
-  void dispose() {
-    _client.close();
-    super.dispose();
-  }
+  // @override
+  // void dispose() {
+  //   _client.close();
+  //   super.dispose();
+  // }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Center(
-        child: _widgetOptions.elementAt(_selectedIndex),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _widgetOptions,
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(5.0),
