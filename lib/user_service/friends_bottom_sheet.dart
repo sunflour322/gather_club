@@ -11,6 +11,7 @@ class FriendsBottomSheet extends StatefulWidget {
   final Function(int) onAcceptRequest;
   final Function(int) onDeclineRequest;
   final VoidCallback onAddFriend;
+  final VoidCallback? onFriendsUpdated;
 
   const FriendsBottomSheet({
     Key? key,
@@ -19,6 +20,7 @@ class FriendsBottomSheet extends StatefulWidget {
     required this.onAcceptRequest,
     required this.onDeclineRequest,
     required this.onAddFriend,
+    this.onFriendsUpdated,
   }) : super(key: key);
 
   @override
@@ -28,11 +30,80 @@ class FriendsBottomSheet extends StatefulWidget {
 class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
   late final FriendService _friendService;
   bool _isLoading = false;
+  List<Friend> _friends = [];
 
   @override
   void initState() {
     super.initState();
     _friendService = FriendService(http.Client());
+    _friends = widget.friends;
+  }
+
+  Future<void> _refreshFriends() async {
+    try {
+      setState(() => _isLoading = true);
+
+      final token =
+          await Provider.of<AuthProvider>(context, listen: false).getToken();
+      if (token == null) throw Exception('Не авторизован');
+
+      final friends = await _friendService.getAllFriends(token);
+      final incomingRequests = await _friendService.getIncomingRequests(token);
+      final outgoingRequests = await _friendService.getOutgoingRequests(token);
+
+      setState(() {
+        _friends = [...friends, ...incomingRequests, ...outgoingRequests];
+        _isLoading = false;
+      });
+
+      widget.onFriendsUpdated?.call();
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleAcceptRequest(int friendshipId) async {
+    try {
+      await widget.onAcceptRequest(friendshipId);
+      await _refreshFriends();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleDeclineRequest(int friendshipId) async {
+    try {
+      await widget.onDeclineRequest(friendshipId);
+      await _refreshFriends();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleRemoveFriend(int friendshipId) async {
+    try {
+      await widget.onRemoveFriend(friendshipId);
+      await _refreshFriends();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
   }
 
   Widget _buildFriendTile(Friend friend) {
@@ -68,18 +139,18 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
         children: [
           IconButton(
             icon: const Icon(Icons.check, color: Colors.green),
-            onPressed: () => widget.onAcceptRequest(friend.friendshipId!),
+            onPressed: () => _handleAcceptRequest(friend.friendshipId!),
           ),
           IconButton(
             icon: const Icon(Icons.close, color: Colors.red),
-            onPressed: () => widget.onDeclineRequest(friend.friendshipId!),
+            onPressed: () => _handleDeclineRequest(friend.friendshipId!),
           ),
         ],
       );
     } else if (friend.status.toLowerCase() == 'accepted') {
       return IconButton(
         icon: const Icon(Icons.person_remove),
-        onPressed: () => widget.onRemoveFriend(friend.friendshipId!),
+        onPressed: () => _handleRemoveFriend(friend.friendshipId!),
       );
     }
     return const SizedBox.shrink();
@@ -115,10 +186,18 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                TextButton.icon(
-                  onPressed: widget.onAddFriend,
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('Добавить'),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.refresh),
+                      onPressed: _refreshFriends,
+                    ),
+                    TextButton.icon(
+                      onPressed: widget.onAddFriend,
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('Добавить'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -126,7 +205,7 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
           const Divider(),
           if (_isLoading)
             const Center(child: CircularProgressIndicator())
-          else if (widget.friends.isEmpty)
+          else if (_friends.isEmpty)
             const Expanded(
               child: Center(
                 child: Text(
@@ -138,10 +217,13 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
             )
           else
             Expanded(
-              child: ListView.builder(
-                itemCount: widget.friends.length,
-                itemBuilder: (context, index) =>
-                    _buildFriendTile(widget.friends[index]),
+              child: RefreshIndicator(
+                onRefresh: _refreshFriends,
+                child: ListView.builder(
+                  itemCount: _friends.length,
+                  itemBuilder: (context, index) =>
+                      _buildFriendTile(_friends[index]),
+                ),
               ),
             ),
         ],

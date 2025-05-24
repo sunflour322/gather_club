@@ -19,14 +19,17 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
   String? _error;
   List<Map<String, dynamic>> _allUsers = [];
   List<Map<String, dynamic>> _searchResults = [];
+  List<Friend> _friends = [];
+  List<Friend> _pendingRequests = [];
+  int? _currentUserId;
 
   @override
   void initState() {
     super.initState();
-    _loadUsers();
+    _loadInitialData();
   }
 
-  Future<void> _loadUsers() async {
+  Future<void> _loadInitialData() async {
     try {
       setState(() => _isLoading = true);
 
@@ -36,22 +39,70 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
         throw Exception('Не авторизован');
       }
 
-      final users = await _friendService.getAllUsers(token);
-      setState(() {
-        _allUsers = users;
-        _isLoading = false;
-      });
+      // Получаем ID текущего пользователя
+      _currentUserId = await _friendService.getCurrentUserId(token);
+      print('Current user ID: $_currentUserId');
 
-      // Применяем текущий поисковый запрос к загруженным пользователям
-      if (_searchController.text.isNotEmpty) {
-        _filterUsers(_searchController.text);
+      // Загружаем списки друзей и запросов параллельно
+      final results = await Future.wait([
+        _friendService.getAllUsers(token),
+        _friendService.getAllFriends(token),
+        _friendService.getIncomingRequests(token),
+        _friendService.getOutgoingRequests(token),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _allUsers = results[0] as List<Map<String, dynamic>>;
+          _friends = results[1] as List<Friend>;
+          _pendingRequests = [
+            ...(results[2] as List<Friend>),
+            ...(results[3] as List<Friend>)
+          ];
+          _isLoading = false;
+        });
+
+        // Применяем текущий поисковый запрос к загруженным пользователям
+        if (_searchController.text.isNotEmpty) {
+          _filterUsers(_searchController.text);
+        }
       }
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
+      print('Error loading initial data: $e');
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  bool _shouldShowUser(Map<String, dynamic> user) {
+    final userId = user['userId'];
+
+    print('Checking user $userId (${user['username']})');
+
+    // Не показываем текущего пользователя
+    if (userId == _currentUserId) {
+      print('Skipping current user');
+      return false;
+    }
+
+    // Не показываем существующих друзей
+    if (_friends.any((friend) => friend.userId == userId)) {
+      print('Skipping friend');
+      return false;
+    }
+
+    // Не показываем пользователей с активными запросами
+    if (_pendingRequests.any((request) => request.userId == userId)) {
+      print('Skipping user with pending request');
+      return false;
+    }
+
+    print('User $userId will be shown in search results');
+    return true;
   }
 
   void _filterUsers(String query) {
@@ -65,6 +116,10 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
     final lowercaseQuery = query.toLowerCase();
     setState(() {
       _searchResults = _allUsers.where((user) {
+        if (!_shouldShowUser(user)) {
+          return false;
+        }
+
         final username = (user['username'] ?? '').toString().toLowerCase();
         final email = (user['email'] ?? '').toString().toLowerCase();
         return username.contains(lowercaseQuery) ||
@@ -81,23 +136,37 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
         throw Exception('Не авторизован');
       }
 
-      print(
-          'Отправка запроса в друзья. UserId: $userId, Token: ${token.substring(0, 10)}...');
+      setState(() => _isLoading = true);
       await _friendService.sendFriendRequest(userId, token);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Запрос в друзья отправлен')),
-      );
-      // Обновляем список пользователей
-      _loadUsers();
+      // Обновляем списки после отправки запроса
+      final incomingRequests = await _friendService.getIncomingRequests(token);
+      final outgoingRequests = await _friendService.getOutgoingRequests(token);
+
+      if (mounted) {
+        setState(() {
+          _pendingRequests = [...incomingRequests, ...outgoingRequests];
+          _isLoading = false;
+        });
+
+        // Обновляем результаты поиска
+        _filterUsers(_searchController.text);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Запрос в друзья отправлен')),
+        );
+      }
     } catch (e) {
-      print('Ошибка при отправке запроса в друзья: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ошибка: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      print('Error sending friend request: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -163,34 +232,45 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Поиск друзей'),
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Введите имя пользователя или email',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          _filterUsers('');
-                        },
-                      )
-                    : null,
-              ),
-              onChanged: _filterUsers,
-            ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadInitialData,
           ),
-          Expanded(child: _buildSearchResults()),
         ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _loadInitialData,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Введите имя пользователя или email',
+                  prefixIcon: const Icon(Icons.search),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            _filterUsers('');
+                          },
+                        )
+                      : null,
+                ),
+                onChanged: _filterUsers,
+              ),
+            ),
+            Expanded(
+              child: _buildSearchResults(),
+            ),
+          ],
+        ),
       ),
     );
   }

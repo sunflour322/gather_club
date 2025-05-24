@@ -53,8 +53,8 @@ class FriendService {
     final currentUserId = await getCurrentUserId(token);
     final url =
         Uri.parse('$_baseUrl/friendships/request/$currentUserId/$friendId');
-    print('Отправка POST запроса на $url');
-    print('Заголовки: ${_getAuthHeaders(token)}');
+
+    print('Отправка запроса в друзья: $url');
 
     final response = await _client.post(
       url,
@@ -120,29 +120,94 @@ class FriendService {
 
     if (response.statusCode == 200) {
       final List<dynamic> friendsJson = jsonDecode(response.body);
-      return friendsJson.map((json) => Friend.fromJson(json)).toList();
+      final List<Friend> friends = [];
+
+      for (var json in friendsJson) {
+        final userId = json['user2Id'] == currentUserId
+            ? json['user1Id']
+            : json['user2Id'];
+        final userInfo = await getUserInfo(userId, token);
+        json['username'] = userInfo['username'];
+        json['avatarUrl'] = userInfo['avatarUrl'];
+        json['currentUserId'] = currentUserId;
+        friends.add(Friend.fromJson(json));
+      }
+
+      return friends;
     } else {
-      throw Exception(
-          'Не удалось получить список друзей. Статус: ${response.statusCode}, Ответ: ${response.body}');
+      throw Exception('Не удалось получить список друзей');
     }
   }
 
-  Future<List<Friend>> getPendingRequests(String token) async {
+  Future<List<Friend>> getIncomingRequests(String token) async {
     final currentUserId = await getCurrentUserId(token);
     final response = await _client.get(
-      Uri.parse('$_baseUrl/friendships/$currentUserId/pending'),
+      Uri.parse('$_baseUrl/friendships/$currentUserId/incoming'),
       headers: _getAuthHeaders(token),
     );
 
     print(
-        'GET /friendships/pending Response: ${response.statusCode} - ${response.body}');
+        'GET /friendships/incoming Response: ${response.statusCode} - ${response.body}');
 
     if (response.statusCode == 200) {
       final List<dynamic> requestsJson = jsonDecode(response.body);
-      return requestsJson.map((json) => Friend.fromJson(json)).toList();
+      final List<Friend> requests = [];
+
+      for (var json in requestsJson) {
+        final userInfo = await getUserInfo(json['user1Id'], token);
+        json['username'] = userInfo['username'];
+        json['avatarUrl'] = userInfo['avatarUrl'];
+        json['currentUserId'] = currentUserId;
+        requests.add(Friend.fromJson(json));
+      }
+
+      return requests;
     } else {
-      throw Exception(
-          'Не удалось получить список запросов в друзья. Статус: ${response.statusCode}, Ответ: ${response.body}');
+      throw Exception('Не удалось получить список входящих запросов');
+    }
+  }
+
+  Future<List<Friend>> getOutgoingRequests(String token) async {
+    final currentUserId = await getCurrentUserId(token);
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/friendships/$currentUserId/outgoing'),
+      headers: _getAuthHeaders(token),
+    );
+
+    print(
+        'GET /friendships/outgoing Response: ${response.statusCode} - ${response.body}');
+
+    if (response.statusCode == 200) {
+      final List<dynamic> requestsJson = jsonDecode(response.body);
+      final List<Friend> requests = [];
+
+      for (var json in requestsJson) {
+        final userInfo = await getUserInfo(json['user2Id'], token);
+        json['username'] = userInfo['username'];
+        json['avatarUrl'] = userInfo['avatarUrl'];
+        json['currentUserId'] = currentUserId;
+        requests.add(Friend.fromJson(json));
+      }
+
+      return requests;
+    } else {
+      throw Exception('Не удалось получить список исходящих запросов');
+    }
+  }
+
+  Future<Map<String, dynamic>> getUserInfo(int userId, String token) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/users/$userId'),
+      headers: _getAuthHeaders(token),
+    );
+
+    print(
+        'GET /users/$userId Response: ${response.statusCode} - ${response.body}');
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Не удалось получить информацию о пользователе');
     }
   }
 }

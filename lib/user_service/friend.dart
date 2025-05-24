@@ -16,14 +16,29 @@ class Friend {
   });
 
   factory Friend.fromJson(Map<String, dynamic> json) {
-    return Friend(
-      userId: json['user2Id'] ?? json['user1Id'],
+    print('Creating Friend from JSON: $json');
+
+    final currentUserId = json['currentUserId'];
+    final user1Id = json['user1Id'];
+    final user2Id = json['user2Id'];
+
+    // Определяем ID пользователя (не текущего)
+    final userId = currentUserId == user1Id ? user2Id : user1Id;
+
+    // Определяем, является ли запрос исходящим
+    final isOutgoing = currentUserId == user1Id;
+
+    final friend = Friend(
+      userId: userId ?? json['userId'],
       username: json['username'] ?? '',
       avatarUrl: json['avatarUrl'],
-      status: json['status'] ?? 'pending',
-      isOutgoing: json['user1Id'] == json['currentUserId'],
-      friendshipId: json['friendshipId'],
+      status: json['status']?.toLowerCase() ?? 'pending',
+      isOutgoing: isOutgoing,
+      friendshipId: json['friendshipId'] ?? json['id'],
     );
+
+    print('Created Friend object: $friend');
+    return friend;
   }
 
   Map<String, dynamic> toJson() {
@@ -35,5 +50,10 @@ class Friend {
       'isOutgoing': isOutgoing,
       'friendshipId': friendshipId,
     };
+  }
+
+  @override
+  String toString() {
+    return 'Friend{userId: $userId, username: $username, status: $status, isOutgoing: $isOutgoing, friendshipId: $friendshipId}';
   }
 }

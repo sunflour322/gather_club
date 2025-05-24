@@ -7,6 +7,7 @@ import 'package:gather_club/user_service/friend_service.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class AccountPage extends StatefulWidget {
   const AccountPage({super.key});
@@ -16,8 +17,7 @@ class AccountPage extends StatefulWidget {
 }
 
 class _AccountPageState extends State<AccountPage> {
-  User? _user;
-  String? _avatarUrl;
+  Map<String, dynamic>? _userData;
   List<Place> _userPlaces = [];
   List<Friend> _friends = [];
   bool _isLoading = true;
@@ -40,16 +40,40 @@ class _AccountPageState extends State<AccountPage> {
         throw Exception('Не авторизован');
       }
 
+      // Получаем данные текущего пользователя
+      final response = await http.get(
+        Uri.parse('http://212.67.8.92:8080/users/current'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Не удалось загрузить данные пользователя');
+      }
+
+      // Загружаем друзей и запросы параллельно
       final friends = await _friendService.getAllFriends(token);
-      final pendingRequests = await _friendService.getPendingRequests(token);
+      final incomingRequests = await _friendService.getIncomingRequests(token);
+      final outgoingRequests = await _friendService.getOutgoingRequests(token);
+
+      print('Loaded friends: $friends');
+      print('Loaded incoming requests: $incomingRequests');
+      print('Loaded outgoing requests: $outgoingRequests');
 
       setState(() {
-        _friends = [...friends, ...pendingRequests];
+        _userData = Map<String, dynamic>.from(json.decode(response.body));
+        _friends = [...friends, ...incomingRequests, ...outgoingRequests];
         _isLoading = false;
       });
     } catch (e) {
+      print('Error loading user data: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
+        SnackBar(
+          content: Text('Ошибка: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
       setState(() => _isLoading = false);
     }
@@ -106,30 +130,6 @@ class _AccountPageState extends State<AccountPage> {
     }
   }
 
-  void _showFriendsBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.5,
-          maxChildSize: 0.9,
-          builder: (context, scrollController) => FriendsBottomSheet(
-            friends: _friends,
-            onRemoveFriend: _handleRemoveFriend,
-            onAcceptRequest: _handleAcceptRequest,
-            onDeclineRequest: _handleDeclineRequest,
-            onAddFriend: () {
-              Navigator.of(context).pushNamed('/friends/search');
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildProfileHeader() {
     return Container(
       height: MediaQuery.of(context).size.height / 3,
@@ -145,23 +145,20 @@ class _AccountPageState extends State<AccountPage> {
         children: [
           CircleAvatar(
             radius: 50,
-            backgroundImage: _avatarUrl != null
-                ? NetworkImage(_avatarUrl!)
+            backgroundImage: _userData?['avatarUrl'] != null
+                ? NetworkImage(_userData!['avatarUrl'])
                 : const AssetImage('assets/logo.png') as ImageProvider,
-            child: _avatarUrl == null
-                ? const Icon(Icons.person, size: 50, color: Colors.white)
-                : null,
           ),
           const SizedBox(height: 16),
           Text(
-            _user?.username ?? 'Пользователь',
+            _userData?['username'] ?? 'Загрузка...',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
           ),
-          if (_user?.isVerified ?? false)
+          if (_userData?['verified'] == true)
             const Padding(
               padding: EdgeInsets.only(top: 4),
               child: Row(
@@ -200,13 +197,21 @@ class _AccountPageState extends State<AccountPage> {
               ),
             ),
             const Divider(height: 20),
-            _buildInfoRow(Icons.email, 'Email', _user?.email ?? 'Не указан'),
             _buildInfoRow(
-                Icons.phone, 'Телефон', _user?.phoneNumber ?? 'Не указан'),
-            _buildInfoRow(Icons.calendar_today, 'Дата регистрации',
-                _user?.createdAt?.toLocal().toString().split(' ')[0] ?? ''),
+                Icons.email, 'Email', _userData?['email'] ?? 'Не указан'),
+            _buildInfoRow(Icons.phone, 'Телефон',
+                _userData?['phoneNumber'] ?? 'Не указан'),
+            _buildInfoRow(
+                Icons.calendar_today,
+                'Дата регистрации',
+                _userData?['createdAt'] != null
+                    ? DateTime.parse(_userData!['createdAt'])
+                        .toLocal()
+                        .toString()
+                        .split(' ')[0]
+                    : 'Не указана'),
             const SizedBox(height: 8),
-            if (_user?.bio?.isNotEmpty ?? false)
+            if (_userData?['bio'] != null && _userData!['bio'].isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -217,7 +222,7 @@ class _AccountPageState extends State<AccountPage> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(_user!.bio!),
+                  Text(_userData!['bio']),
                 ],
               ),
           ],
@@ -328,6 +333,19 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Widget _buildStatsSection() {
+    final acceptedFriends =
+        _friends.where((f) => f.status.toLowerCase() == 'accepted').toList();
+    final incomingRequests = _friends
+        .where((f) => f.status.toLowerCase() == 'pending' && !f.isOutgoing)
+        .toList();
+    final outgoingRequests = _friends
+        .where((f) => f.status.toLowerCase() == 'pending' && f.isOutgoing)
+        .toList();
+
+    print('Stats - Accepted friends: ${acceptedFriends.length}');
+    print('Stats - Incoming requests: ${incomingRequests.length}');
+    print('Stats - Outgoing requests: ${outgoingRequests.length}');
+
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
@@ -349,7 +367,9 @@ class _AccountPageState extends State<AccountPage> {
                   onPressed: _showFriendsBottomSheet,
                   icon: const Icon(Icons.people),
                   label: Text(
-                    'Друзья (${_friends.where((f) => f.status == 'accepted').length})',
+                    incomingRequests.isNotEmpty
+                        ? 'Друзья (${acceptedFriends.length}) • ${incomingRequests.length}'
+                        : 'Друзья (${acceptedFriends.length})',
                   ),
                 ),
               ],
@@ -359,10 +379,8 @@ class _AccountPageState extends State<AccountPage> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildStatItem('12', 'Встреч'),
-                _buildStatItem(
-                    '${_friends.where((f) => f.status == 'accepted').length}',
-                    'Друзей'),
-                _buildStatItem('8', 'Мест'),
+                _buildStatItem('${acceptedFriends.length}', 'Друзей'),
+                _buildStatItem('${_userPlaces.length}', 'Мест'),
                 _buildStatItem('150', 'Очков'),
               ],
             ),
@@ -395,22 +413,52 @@ class _AccountPageState extends State<AccountPage> {
     );
   }
 
+  void _showFriendsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) => FriendsBottomSheet(
+            friends: _friends,
+            onRemoveFriend: _handleRemoveFriend,
+            onAcceptRequest: _handleAcceptRequest,
+            onDeclineRequest: _handleDeclineRequest,
+            onAddFriend: () {
+              Navigator.of(context).pushNamed('/friends/search');
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     return Scaffold(
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildProfileHeader(),
-            _buildUserInfoSection(),
-            _buildStatsSection(),
-            _buildUserPlacesSection(),
-            const SizedBox(height: 20),
-          ],
+      body: RefreshIndicator(
+        onRefresh: _loadUserData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              _buildProfileHeader(),
+              _buildUserInfoSection(),
+              _buildStatsSection(),
+              _buildUserPlacesSection(),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
