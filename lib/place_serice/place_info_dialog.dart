@@ -532,6 +532,23 @@ class _PlaceContentState extends State<_PlaceContent> {
           ),
         const SizedBox(height: 16),
 
+        // Адрес
+        if (widget.place.address != null && widget.place.address!.isNotEmpty)
+          Row(
+            children: [
+              const Icon(Icons.location_on, size: 16, color: Colors.grey),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.place.address!,
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        if (widget.place.address != null && widget.place.address!.isNotEmpty)
+          const SizedBox(height: 16),
+
         // Время работы и телефон
         Row(
           children: [

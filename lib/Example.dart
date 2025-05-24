@@ -521,117 +521,123 @@ class _ExamplePageState extends State<ExamplePage>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Wrap(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: const BoxDecoration(
-                      color: Colors.grey,
-                      borderRadius: BorderRadius.all(Radius.circular(2)),
+          padding: const EdgeInsets.all(16),
+          child: Wrap(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: const BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.all(Radius.circular(2)),
+                      ),
                     ),
                   ),
-                ),
-                TextField(
-                  controller: _placeNameController,
-                  decoration: InputDecoration(
-                    labelText: 'Название места',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                  TextField(
+                    controller: _placeNameController,
+                    decoration: InputDecoration(
+                      labelText: 'Название места',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[100],
                     ),
-                    filled: true,
-                    fillColor: Colors.grey[100],
+                    onChanged: (value) {
+                      setState(
+                          () {}); // Обновляем состояние при изменении текста
+                    },
                   ),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    if (location != null) {
-                      _buildRoute(
-                        Place(
-                          placeId: 0,
-                          name: _placeNameController.text,
-                          description: '',
-                          latitude: point.latitude,
-                          longitude: point.longitude,
-                          imageUrl: null,
-                        ),
-                        {},
-                        location!,
-                      );
-                    }
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.directions_walk),
-                  label: const Text('Построить маршрут'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // TODO: Реализовать сохранение метки
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.save),
-                  label: const Text('Сохранить метку'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      if (location != null) {
+                        _buildRoute(
+                          Place(
+                            placeId: 0,
+                            name: _placeNameController.text,
+                            description: '',
+                            latitude: point.latitude,
+                            longitude: point.longitude,
+                            imageUrl: null,
+                          ),
+                          {},
+                          location!,
+                        );
+                      }
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.directions_walk),
+                    label: const Text('Построить маршрут'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // TODO: Реализовать создание встречи
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.group_add),
-                  label: const Text('Создать встречу'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      // TODO: Реализовать сохранение метки
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.save),
+                    label: const Text('Сохранить метку'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ],
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      // TODO: Реализовать создание встречи
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.group_add),
+                    label: const Text('Создать встречу'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     ).then((_) {

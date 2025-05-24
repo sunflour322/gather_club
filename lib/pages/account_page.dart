@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:gather_club/place_serice/place.dart';
 import 'package:gather_club/user_service/user.dart';
+import 'package:gather_club/user_service/friend.dart';
+import 'package:gather_club/user_service/friends_bottom_sheet.dart';
+import 'package:gather_club/user_service/friend_service.dart';
+import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
 
 class AccountPage extends StatefulWidget {
   const AccountPage({super.key});
@@ -13,74 +19,115 @@ class _AccountPageState extends State<AccountPage> {
   User? _user;
   String? _avatarUrl;
   List<Place> _userPlaces = [];
+  List<Friend> _friends = [];
   bool _isLoading = true;
+  late final FriendService _friendService;
 
   @override
   void initState() {
     super.initState();
+    _friendService = FriendService(http.Client());
     _loadUserData();
   }
 
   Future<void> _loadUserData() async {
-    // Здесь должна быть логика загрузки данных пользователя
-    // Пример:
-    /*
-    final userRepo = UserRepository(http.Client(), AuthProvider());
-    final user = await userRepo.getCurrentUser();
-    final avatarUrl = await userRepo.getUserAvatarUrl(user?.userId ?? 0);
-    final places = await _loadUserPlaces(user?.userId ?? 0);
-    
-    setState(() {
-      _user = user;
-      _avatarUrl = avatarUrl;
-      _userPlaces = places;
-      _isLoading = false;
-    });
-    */
+    try {
+      setState(() => _isLoading = true);
 
-    // Временные данные для демонстрации
-    await Future.delayed(const Duration(seconds: 1));
-    setState(() {
-      _user = User(
-        userId: 1,
-        username: 'traveler123',
-        email: 'user@example.com',
-        phoneNumber: '+1234567890',
-        bio: 'Люблю путешествовать и находить интересные места!',
-        createdAt: DateTime.now(),
-        lastActive: DateTime.now(),
-        isVerified: true,
+      final token =
+          await Provider.of<AuthProvider>(context, listen: false).getToken();
+      if (token == null) {
+        throw Exception('Не авторизован');
+      }
+
+      final friends = await _friendService.getAllFriends(token);
+      final pendingRequests = await _friendService.getPendingRequests(token);
+
+      setState(() {
+        _friends = [...friends, ...pendingRequests];
+        _isLoading = false;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
       );
-      _avatarUrl = 'https://randomuser.me/api/portraits/men/1.jpg';
-      _userPlaces = [
-        Place(
-          placeId: 1,
-          name: 'Крутая кофейня',
-          description: 'Лучший кофе в городе',
-          latitude: 55.7558,
-          longitude: 37.6173,
-          imageUrl:
-              'https://firebasestorage.googleapis.com/v0/b/flutter-films-mukachev.appspot.com/o/GatherClub%2F5d34871cd5504276c974576fd8b96eee.jpg?alt=media&token=ebe5b717-5820-41c2-aa3c-fc2c1e3da68f',
-          userImages: [
-            PlaceImage(
-              imageId: 1,
-              imageUrl:
-                  'https://firebasestorage.googleapis.com/v0/b/flutter-films-mukachev.appspot.com/o/GatherClub%2F1293618972-1885511239.jpg?alt=media&token=8b5fc161-366a-4b71-9be7-6c05bacd4f68',
-              uploadedAt: DateTime.now(),
-              isApproved: true,
-              likes: 10,
-              dislikes: 2,
-            ),
-          ],
-        ),
-      ];
-      _isLoading = false;
-    });
+      setState(() => _isLoading = false);
+    }
   }
 
-  Future<List<Place>> _loadUserPlaces(int userId) async {
-    // Здесь должна быть логика загрузки мест пользователя
-    return [];
+  Future<void> _handleAcceptRequest(int friendshipId) async {
+    try {
+      final token =
+          await Provider.of<AuthProvider>(context, listen: false).getToken();
+      if (token == null) {
+        throw Exception('Не авторизован');
+      }
+
+      await _friendService.acceptFriendRequest(friendshipId, token);
+      await _loadUserData(); // Перезагружаем данные
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  Future<void> _handleDeclineRequest(int friendshipId) async {
+    try {
+      final token =
+          await Provider.of<AuthProvider>(context, listen: false).getToken();
+      if (token == null) {
+        throw Exception('Не авторизован');
+      }
+
+      await _friendService.rejectFriendRequest(friendshipId, token);
+      await _loadUserData(); // Перезагружаем данные
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  Future<void> _handleRemoveFriend(int friendshipId) async {
+    try {
+      final token =
+          await Provider.of<AuthProvider>(context, listen: false).getToken();
+      if (token == null) {
+        throw Exception('Не авторизован');
+      }
+
+      // TODO: Реализовать удаление из друзей на бэкенде
+      await _loadUserData(); // Перезагружаем данные
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  void _showFriendsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) => FriendsBottomSheet(
+            friends: _friends,
+            onRemoveFriend: _handleRemoveFriend,
+            onAcceptRequest: _handleAcceptRequest,
+            onDeclineRequest: _handleDeclineRequest,
+            onAddFriend: () {
+              Navigator.of(context).pushNamed('/friends/search');
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildProfileHeader() {
@@ -100,8 +147,7 @@ class _AccountPageState extends State<AccountPage> {
             radius: 50,
             backgroundImage: _avatarUrl != null
                 ? NetworkImage(_avatarUrl!)
-                : const AssetImage('assets/default_avatar.png')
-                    as ImageProvider,
+                : const AssetImage('assets/logo.png') as ImageProvider,
             child: _avatarUrl == null
                 ? const Icon(Icons.person, size: 50, color: Colors.white)
                 : null,
@@ -282,7 +328,6 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Widget _buildStatsSection() {
-    // Здесь можно добавить статистику пользователя
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
@@ -290,19 +335,33 @@ class _AccountPageState extends State<AccountPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Статистика',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Статистика',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _showFriendsBottomSheet,
+                  icon: const Icon(Icons.people),
+                  label: Text(
+                    'Друзья (${_friends.where((f) => f.status == 'accepted').length})',
+                  ),
+                ),
+              ],
             ),
             const Divider(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildStatItem('12', 'Встреч'),
-                _buildStatItem('5', 'Друзей'),
+                _buildStatItem(
+                    '${_friends.where((f) => f.status == 'accepted').length}',
+                    'Друзей'),
                 _buildStatItem('8', 'Мест'),
                 _buildStatItem('150', 'Очков'),
               ],

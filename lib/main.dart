@@ -7,6 +7,8 @@ import 'package:gather_club/nav_service/routes.dart';
 import 'package:gather_club/pages/auth_page.dart';
 import 'package:gather_club/pages/reg_page.dart';
 import 'package:provider/provider.dart';
+import 'package:gather_club/pages/account_page.dart';
+import 'package:gather_club/pages/friend_search_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +53,8 @@ class MyApp extends StatelessWidget {
           '/login': (context) => AuthPage(),
           '/register': (context) => RegisterScreen(),
           '/home': (context) => NavPage(),
+          '/account': (context) => const AccountPage(),
+          '/friends/search': (context) => const FriendSearchPage(),
         },
       ),
     );

@@ -8,6 +8,7 @@ class Place {
   final String? category;
   final String? workingHours;
   final String? phone;
+  final String? address;
   final List<PlaceImage>? userImages; // Теперь отдельный класс для изображений
 
   Place({
@@ -20,6 +21,7 @@ class Place {
     this.category,
     this.workingHours,
     this.phone,
+    this.address,
     this.userImages,
   });
 
@@ -34,6 +36,7 @@ class Place {
       category: json['category'],
       workingHours: json['workingHours'],
       phone: json['phone'],
+      address: json['address'],
       userImages: json['userImages'] != null
           ? (json['userImages'] as List)
               .map((i) => PlaceImage.fromJson(i))
