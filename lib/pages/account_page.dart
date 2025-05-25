@@ -5,6 +5,10 @@ import 'package:gather_club/user_service/friend.dart';
 import 'package:gather_club/user_service/friends_bottom_sheet.dart';
 import 'package:gather_club/user_service/friend_service.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/services/user_custom_place_service.dart';
+import 'package:gather_club/place_serice/user_custom_place.dart';
+import 'package:gather_club/Example.dart';
+import 'package:gather_club/navigation/navigation_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -18,17 +22,20 @@ class AccountPage extends StatefulWidget {
 
 class _AccountPageState extends State<AccountPage> {
   Map<String, dynamic>? _userData;
-  List<Place> _userPlaces = [];
+  List<UserCustomPlace> _userPlaces = [];
   List<Friend> _acceptedFriends = [];
   List<Friend> _incomingRequests = [];
   List<Friend> _outgoingRequests = [];
   bool _isLoading = true;
   late final FriendService _friendService;
+  late final UserCustomPlaceService _userPlaceService;
 
   @override
   void initState() {
     super.initState();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _friendService = FriendService(http.Client());
+    _userPlaceService = UserCustomPlaceService(authProvider);
     _loadUserData();
   }
 
@@ -36,8 +43,10 @@ class _AccountPageState extends State<AccountPage> {
     try {
       setState(() => _isLoading = true);
 
-      final token =
-          await Provider.of<AuthProvider>(context, listen: false).getToken();
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = await authProvider.getToken();
+      final userId = await authProvider.getUserId();
+
       if (token == null) {
         throw Exception('Не авторизован');
       }
@@ -55,17 +64,21 @@ class _AccountPageState extends State<AccountPage> {
         throw Exception('Не удалось загрузить данные пользователя');
       }
 
-      // Загружаем друзей и запросы параллельно
-      final friends = await _friendService.getAllFriends(token);
-      final incomingRequests = await _friendService.getIncomingRequests(token);
-      final outgoingRequests = await _friendService.getOutgoingRequests(token);
+      // Загружаем друзей, запросы и пользовательские места параллельно
+      final futures = await Future.wait([
+        _friendService.getAllFriends(token),
+        _friendService.getIncomingRequests(token),
+        _friendService.getOutgoingRequests(token),
+        _userPlaceService.getAllPlaces(userId),
+      ]);
 
       if (mounted) {
         setState(() {
           _userData = Map<String, dynamic>.from(json.decode(response.body));
-          _acceptedFriends = friends;
-          _incomingRequests = incomingRequests;
-          _outgoingRequests = outgoingRequests;
+          _acceptedFriends = futures[0] as List<Friend>;
+          _incomingRequests = futures[1] as List<Friend>;
+          _outgoingRequests = futures[2] as List<Friend>;
+          _userPlaces = futures[3] as List<UserCustomPlace>;
           _isLoading = false;
         });
       }
@@ -288,7 +301,52 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Widget _buildUserPlacesSection() {
-    if (_userPlaces.isEmpty) return const SizedBox();
+    if (_userPlaces.isEmpty) {
+      return Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Мои места',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      final navigation = NavigationProvider.of(context);
+                      if (navigation != null) {
+                        navigation.onNavigate(0); // Индекс вкладки с картой
+                      }
+                    },
+                    icon: const Icon(Icons.add_location_alt),
+                    label: const Text('Добавить'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Center(
+                child: Text(
+                  'У вас пока нет сохранённых мест.\nДобавьте их через карту!',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -297,59 +355,123 @@ class _AccountPageState extends State<AccountPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Добавленные места',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Мои места (${_userPlaces.length})',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    final navigation = NavigationProvider.of(context);
+                    if (navigation != null) {
+                      navigation.onNavigate(0); // Индекс вкладки с картой
+                    }
+                  },
+                  icon: const Icon(Icons.add_location_alt),
+                  label: const Text('Добавить'),
+                ),
+              ],
             ),
             const Divider(height: 20),
-            SizedBox(
-              height: 200,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _userPlaces.length,
-                itemBuilder: (context, index) {
-                  final place = _userPlaces[index];
-                  return Container(
-                    width: 180,
-                    margin: const EdgeInsets.only(right: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ClipRRect(
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _userPlaces.length,
+              separatorBuilder: (context, index) => const Divider(height: 16),
+              itemBuilder: (context, index) {
+                final place = _userPlaces[index];
+                return InkWell(
+                  onTap: () {
+                    final navigation = NavigationProvider.of(context);
+                    if (navigation != null) {
+                      navigation.onNavigate(0); // Сначала переключаем на карту
+                      ExamplePage.navigateToLocation(
+                        context,
+                        place.latitude,
+                        place.longitude,
+                      );
+                    }
+                  },
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            place.imageUrl ?? 'https://via.placeholder.com/180',
-                            height: 120,
-                            width: 180,
-                            fit: BoxFit.cover,
-                          ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          place.name,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: const Icon(
+                          Icons.place,
+                          color: Colors.blue,
+                          size: 24,
                         ),
-                        if (place.userImages != null &&
-                            place.userImages!.isNotEmpty)
-                          Text(
-                            'Фото: ${place.userImages!.length}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              place.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                            if (place.description != null &&
+                                place.description!.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  place.description!,
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Координаты: ${place.latitude.toStringAsFixed(6)}, ${place.longitude.toStringAsFixed(6)}',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.map_outlined),
+                        onPressed: () {
+                          final navigation = NavigationProvider.of(context);
+                          if (navigation != null) {
+                            navigation
+                                .onNavigate(0); // Сначала переключаем на карту
+                            ExamplePage.navigateToLocation(
+                              context,
+                              place.latitude,
+                              place.longitude,
+                            );
+                          }
+                        },
+                        tooltip: 'Показать на карте',
+                        color: Colors.blue,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         ),

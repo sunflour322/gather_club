@@ -21,6 +21,24 @@ import 'widgets/user_place_info_dialog.dart';
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
 
+  static final GlobalKey<_ExamplePageState> globalKey =
+      GlobalKey<_ExamplePageState>();
+
+  static void navigateToLocation(
+      BuildContext context, double latitude, double longitude) {
+    final state = globalKey.currentState;
+    if (state != null && state.mounted) {
+      if (state._mapController != null) {
+        // Если контроллер уже инициализирован, перемещаем камеру сразу
+        state._updateCamera(latitude, longitude);
+      } else {
+        // Если контроллер еще не инициализирован, сохраняем координаты
+        state._pendingLocation =
+            Point(latitude: latitude, longitude: longitude);
+      }
+    }
+  }
+
   @override
   State<ExamplePage> createState() => _ExamplePageState();
 }
@@ -28,7 +46,7 @@ class ExamplePage extends StatefulWidget {
 class _ExamplePageState extends State<ExamplePage>
     with AutomaticKeepAliveClientMixin {
   final LocationService _locationService = LocationService();
-  late YandexMapController _mapController;
+  YandexMapController? _mapController;
   final List<MapObject> _mapObjects = [];
   bool _isLoading = true;
   bool _hasLocationPermission = false;
@@ -43,11 +61,14 @@ class _ExamplePageState extends State<ExamplePage>
   AppLatLong? location;
   Point? _lastCameraPosition;
   PlacemarkMapObject? _tempPlacemark;
+  Point? _pendingLocation;
   TextEditingController _placeNameController = TextEditingController();
   late UserCustomPlaceService _userPlaceService;
   List<UserCustomPlace> _userPlaces = [];
+  bool _disposed = false; // Флаг для отслеживания состояния dispose
   @override
   bool get wantKeepAlive => true;
+
   @override
   void initState() {
     super.initState();
@@ -58,8 +79,17 @@ class _ExamplePageState extends State<ExamplePage>
     _fetchUserPlaces();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Обновляем места при возвращении на экран
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchUserPlaces();
+    });
+  }
+
   void _saveCameraPosition() {
-    _mapController.getCameraPosition().then((position) {
+    _mapController?.getCameraPosition().then((position) {
       _lastCameraPosition = position.target;
     });
   }
@@ -67,7 +97,7 @@ class _ExamplePageState extends State<ExamplePage>
 // Восстанавливаем позицию при возврате
   void _restoreCameraPosition() {
     if (_lastCameraPosition != null) {
-      _mapController.moveCamera(
+      _mapController?.moveCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(target: _lastCameraPosition!, zoom: 15),
         ),
@@ -75,7 +105,16 @@ class _ExamplePageState extends State<ExamplePage>
     }
   }
 
+  // Безопасный setState
+  void _safeSetState(VoidCallback fn) {
+    if (mounted && !_disposed) {
+      setState(fn);
+    }
+  }
+
   Future<void> _fetchPlaces() async {
+    if (_disposed) return;
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final token = await authProvider.getToken();
     print("token: $token");
@@ -91,9 +130,9 @@ class _ExamplePageState extends State<ExamplePage>
         },
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && !_disposed) {
         final List<dynamic> placesJson = json.decode(response.body);
-        setState(() {
+        _safeSetState(() {
           _places = placesJson.map((json) => Place.fromJson(json)).toList();
           _addPlacesToMap();
         });
@@ -106,77 +145,110 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   Future<void> _fetchUserPlaces() async {
+    if (_disposed) return;
+
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final userId = await authProvider.getUserId();
       final places = await _userPlaceService.getAllPlaces(userId);
-      setState(() {
-        _userPlaces = places;
-        _addUserPlacesToMap();
-      });
+
+      if (!_disposed) {
+        _safeSetState(() {
+          _userPlaces = places;
+          _addUserPlacesToMap();
+        });
+      }
     } catch (e) {
       print('Error fetching user places: $e');
     }
   }
 
-  void _addPlacesToMap() async {
-    final placemarks = <PlacemarkMapObject>[];
-    final _authProvider = Provider.of<AuthProvider>(context, listen: false);
+  Future<void> _addPlacesToMap() async {
+    if (_disposed) return; // Проверяем состояние перед выполнением
 
-    for (final place in _places) {
-      // Размер миниатюры (в пикселях)
-      const thumbnailSize = 100;
-      PlaceRepository placeRepository = PlaceRepository(_authProvider);
-      List<PlaceImage> placeImages =
-          await placeRepository.fetchPlaceImages(place.placeId);
-      // Создаём закруглённую квадратную миниатюру
-      final Uint8List? thumbnailBytes = place.imageUrl != null
-          ? await _createRoundedThumbnail(place.imageUrl!, thumbnailSize)
-          : null;
+    try {
+      final placemarks = <PlacemarkMapObject>[];
+      final _authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-      placemarks.add(PlacemarkMapObject(
-        mapId: MapObjectId('place_${place.placeId}'),
-        point: Point(latitude: place.latitude, longitude: place.longitude),
-        icon: PlacemarkIcon.single(
-          PlacemarkIconStyle(
-            image: thumbnailBytes != null
-                ? BitmapDescriptor.fromBytes(thumbnailBytes)
-                : BitmapDescriptor.fromAssetImage('assets/logo.png'),
-            scale: 1.0, // Масштаб 1:1, так как мы уже подготовили изображение
+      for (final place in _places) {
+        if (_disposed) return; // Проверяем состояние в цикле
+
+        const thumbnailSize = 100;
+        PlaceRepository placeRepository = PlaceRepository(_authProvider);
+        List<PlaceImage> placeImages = [];
+
+        try {
+          placeImages = await placeRepository.fetchPlaceImages(place.placeId);
+        } catch (e) {
+          print('Error fetching images for place ${place.placeId}: $e');
+          continue; // Пропускаем место при ошибке загрузки изображений
+        }
+
+        if (_disposed) return;
+
+        final Uint8List? thumbnailBytes = place.imageUrl != null
+            ? await _createRoundedThumbnail(place.imageUrl!, thumbnailSize)
+            : null;
+
+        if (_disposed) return;
+
+        placemarks.add(PlacemarkMapObject(
+          mapId: MapObjectId('place_${place.placeId}'),
+          point: Point(latitude: place.latitude, longitude: place.longitude),
+          icon: PlacemarkIcon.single(
+            PlacemarkIconStyle(
+              image: thumbnailBytes != null
+                  ? BitmapDescriptor.fromBytes(thumbnailBytes)
+                  : BitmapDescriptor.fromAssetImage('assets/logo.png'),
+              scale: 1.0,
+            ),
           ),
-        ),
-        opacity: 1,
-        onTap: (mapObject, point) {
-          _showPlaceInfo(place, placeImages, location!);
-        },
-      ));
-    }
+          opacity: 1,
+          onTap: (mapObject, point) {
+            if (!_disposed) {
+              _showPlaceInfo(place, placeImages, location!);
+            }
+          },
+        ));
+      }
 
-    setState(() {
-      _mapObjects.addAll(placemarks);
-    });
+      if (!_disposed) {
+        setState(() {
+          _mapObjects.addAll(placemarks);
+        });
+      }
+    } catch (e) {
+      print('Error in _addPlacesToMap: $e');
+    }
   }
 
   void _addUserPlacesToMap() {
-    final placemarks = _userPlaces.map((place) {
-      return PlacemarkMapObject(
-        mapId: MapObjectId('user_place_${place.placeId}'),
-        point: Point(latitude: place.latitude, longitude: place.longitude),
-        icon: PlacemarkIcon.single(
-          PlacemarkIconStyle(
-            image: BitmapDescriptor.fromAssetImage('assets/user_pin.png'),
-            scale: 0.2,
-          ),
-        ),
-        onTap: (_, __) => _showUserPlaceInfo(place),
-      );
-    }).toList();
+    if (_disposed) return;
 
-    setState(() {
-      _mapObjects
-          .removeWhere((obj) => obj.mapId.value.startsWith('user_place_'));
-      _mapObjects.addAll(placemarks);
-    });
+    try {
+      final placemarks = _userPlaces.map((place) {
+        return PlacemarkMapObject(
+          opacity: 1,
+          mapId: MapObjectId('user_place_${place.placeId}'),
+          point: Point(latitude: place.latitude, longitude: place.longitude),
+          icon: PlacemarkIcon.single(
+            PlacemarkIconStyle(
+              image: BitmapDescriptor.fromAssetImage('assets/pin.png'),
+              scale: 0.2,
+            ),
+          ),
+          onTap: (_, __) => _showUserPlaceInfo(place),
+        );
+      }).toList();
+
+      setState(() {
+        _mapObjects
+            .removeWhere((obj) => obj.mapId.value.startsWith('user_place_'));
+        _mapObjects.addAll(placemarks);
+      });
+    } catch (e) {
+      print('Error in _addUserPlacesToMap: $e');
+    }
   }
 
   Future<Uint8List?> _createRoundedThumbnail(String imageUrl, int size) async {
@@ -437,7 +509,9 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   void _clearRoute() {
-    setState(() {
+    if (_disposed) return;
+
+    _safeSetState(() {
       _routePolyline = null;
       _destinationPlacemark = null;
       _routeDuration = null;
@@ -448,13 +522,13 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   void _updateMapObjects() {
-    setState(() {
-      // Удаляем старые объекты маршрута
+    if (_disposed) return;
+
+    _safeSetState(() {
       _mapObjects.removeWhere((obj) =>
           obj.mapId.value == 'current_route' ||
           obj.mapId.value == 'route_destination');
 
-      // Добавляем новые
       if (_routePolyline != null) {
         _mapObjects.add(_routePolyline!);
       }
@@ -500,7 +574,7 @@ class _ExamplePageState extends State<ExamplePage>
       zoom = 16;
     }
 
-    await _mapController.moveCamera(
+    await _mapController?.moveCamera(
       CameraUpdate.newCameraPosition(
         CameraPosition(
           target: Point(latitude: centerLat, longitude: centerLon),
@@ -515,6 +589,8 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   Future<void> _initLocation() async {
+    if (_disposed) return;
+
     _hasLocationPermission = await _locationService.hasLocationPermission();
     if (!_hasLocationPermission) {
       final permission = await _locationService.requestPermission();
@@ -528,17 +604,21 @@ class _ExamplePageState extends State<ExamplePage>
       await _moveToDefaultLocation();
     }
 
-    setState(() => _isLoading = false);
+    if (!_disposed) {
+      _safeSetState(() => _isLoading = false);
+    }
   }
 
   Future<void> _moveToCurrentLocation() async {
+    if (_disposed) return;
+
     try {
       location = await _locationService.getCurrentLocation();
       await _updateCamera(location!.lat, location!.long);
       _addUserPlacemark(location!.lat, location!.long);
-      // Обновляем места при изменении позиции
       await _fetchPlaces();
     } catch (e) {
+      print('Error moving to current location: $e');
       await _moveToDefaultLocation();
     }
   }
@@ -551,21 +631,31 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   Future<void> _updateCamera(double lat, double long) async {
+    print('Updating camera to: $lat, $long');
     if (_mapController != null) {
-      await _mapController.moveCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: Point(latitude: lat, longitude: long),
-            zoom: 15,
+      try {
+        await _mapController!.moveCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: Point(latitude: lat, longitude: long),
+              zoom: 15,
+            ),
           ),
-        ),
-        animation:
-            const MapAnimation(type: MapAnimationType.linear, duration: 1),
-      );
+          animation:
+              const MapAnimation(type: MapAnimationType.linear, duration: 1),
+        );
+        print('Camera updated successfully');
+      } catch (e) {
+        print('Error updating camera: $e');
+      }
+    } else {
+      print('Map controller is null');
     }
   }
 
   void _addUserPlacemark(double lat, double long) {
+    if (_disposed) return;
+
     final placemark = PlacemarkMapObject(
       opacity: 1,
       mapId: const MapObjectId('user_location'),
@@ -578,7 +668,7 @@ class _ExamplePageState extends State<ExamplePage>
       ),
     );
 
-    setState(() {
+    _safeSetState(() {
       _mapObjects.removeWhere((obj) => obj.mapId.value == 'user_location');
       _mapObjects.add(placemark);
     });
@@ -586,7 +676,9 @@ class _ExamplePageState extends State<ExamplePage>
 
   void _handleMapLongPress(Point point) async {
     // Сохраняем текущую позицию камеры
-    final currentPosition = await _mapController.getCameraPosition();
+    final currentPosition = await _mapController?.getCameraPosition();
+    final currentZoom = currentPosition?.zoom ??
+        15.0; // Используем значение по умолчанию, если zoom не определен
 
     // Создаем временную метку
     final tempPlacemark = PlacemarkMapObject(
@@ -608,11 +700,11 @@ class _ExamplePageState extends State<ExamplePage>
       _tempPlacemark = tempPlacemark;
     });
 
-    await _mapController.moveCamera(
+    await _mapController?.moveCamera(
       CameraUpdate.newCameraPosition(
         CameraPosition(
           target: point,
-          zoom: currentPosition.zoom,
+          zoom: currentZoom,
         ),
       ),
       animation: const MapAnimation(
@@ -795,19 +887,34 @@ class _ExamplePageState extends State<ExamplePage>
     });
   }
 
+  void _onMapCreated(YandexMapController controller) async {
+    print('Map created');
+    _mapController = controller;
+
+    if (_isLoading && _hasLocationPermission) {
+      await _moveToCurrentLocation();
+    }
+
+    if (_pendingLocation != null) {
+      print(
+          'Moving to pending location: ${_pendingLocation!.latitude}, ${_pendingLocation!.longitude}');
+      await _updateCamera(
+          _pendingLocation!.latitude, _pendingLocation!.longitude);
+      _pendingLocation = null;
+    }
+  }
+
   @override
   void dispose() {
-    if (_mapController != null) {
-      _mapController.dispose();
-    }
+    print('Disposing ExamplePage');
+    _disposed = true;
+    _placeNameController.dispose();
     super.dispose();
   }
 
   @override
   void deactivate() {
-    if (_mapController != null) {
-      _mapController.dispose();
-    }
+    print('Deactivating ExamplePage');
     super.deactivate();
   }
 
@@ -815,6 +922,7 @@ class _ExamplePageState extends State<ExamplePage>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
+      key: ExamplePage.globalKey,
       appBar: AppBar(
         title: const Text('Интересные места'),
         actions: [
@@ -845,12 +953,7 @@ class _ExamplePageState extends State<ExamplePage>
         children: [
           YandexMap(
             nightModeEnabled: true,
-            onMapCreated: (controller) async {
-              _mapController = controller;
-              if (_isLoading && _hasLocationPermission) {
-                await _moveToCurrentLocation();
-              }
-            },
+            onMapCreated: _onMapCreated,
             onMapLongTap: (Point point) {
               _handleMapLongPress(point);
             },
