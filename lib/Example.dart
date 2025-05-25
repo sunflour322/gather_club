@@ -14,6 +14,9 @@ import 'package:provider/provider.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'services/user_custom_place_service.dart';
+import 'place_serice/user_custom_place.dart';
+import 'widgets/user_place_info_dialog.dart';
 
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
@@ -35,18 +38,24 @@ class _ExamplePageState extends State<ExamplePage>
   PlacemarkMapObject? _destinationPlacemark;
   String? _routeDuration;
   String? _routeDistance;
+  String? _destinationName;
   bool _isRouteCalculating = false;
   AppLatLong? location;
   Point? _lastCameraPosition;
   PlacemarkMapObject? _tempPlacemark;
   TextEditingController _placeNameController = TextEditingController();
+  late UserCustomPlaceService _userPlaceService;
+  List<UserCustomPlace> _userPlaces = [];
   @override
   bool get wantKeepAlive => true;
   @override
   void initState() {
     super.initState();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _userPlaceService = UserCustomPlaceService(authProvider);
     _initLocation();
     _fetchPlaces();
+    _fetchUserPlaces();
   }
 
   void _saveCameraPosition() {
@@ -96,6 +105,20 @@ class _ExamplePageState extends State<ExamplePage>
     }
   }
 
+  Future<void> _fetchUserPlaces() async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final userId = await authProvider.getUserId();
+      final places = await _userPlaceService.getAllPlaces(userId);
+      setState(() {
+        _userPlaces = places;
+        _addUserPlacesToMap();
+      });
+    } catch (e) {
+      print('Error fetching user places: $e');
+    }
+  }
+
   void _addPlacesToMap() async {
     final placemarks = <PlacemarkMapObject>[];
     final _authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -130,6 +153,28 @@ class _ExamplePageState extends State<ExamplePage>
     }
 
     setState(() {
+      _mapObjects.addAll(placemarks);
+    });
+  }
+
+  void _addUserPlacesToMap() {
+    final placemarks = _userPlaces.map((place) {
+      return PlacemarkMapObject(
+        mapId: MapObjectId('user_place_${place.placeId}'),
+        point: Point(latitude: place.latitude, longitude: place.longitude),
+        icon: PlacemarkIcon.single(
+          PlacemarkIconStyle(
+            image: BitmapDescriptor.fromAssetImage('assets/user_pin.png'),
+            scale: 0.2,
+          ),
+        ),
+        onTap: (_, __) => _showUserPlaceInfo(place),
+      );
+    }).toList();
+
+    setState(() {
+      _mapObjects
+          .removeWhere((obj) => obj.mapId.value.startsWith('user_place_'));
       _mapObjects.addAll(placemarks);
     });
   }
@@ -229,6 +274,51 @@ class _ExamplePageState extends State<ExamplePage>
     );
   }
 
+  void _showUserPlaceInfo(UserCustomPlace place) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => UserPlaceInfoDialog(
+        place: place,
+        onRouteBuilt: (place) {
+          if (location != null) {
+            _buildRoute(
+              Place(
+                placeId: place.placeId,
+                name: place.name,
+                description: place.description,
+                latitude: place.latitude,
+                longitude: place.longitude,
+                imageUrl: place.imageUrl,
+              ),
+              {},
+              location!,
+            );
+          }
+          Navigator.pop(context);
+        },
+        onRouteCleared: _clearRoute,
+        onDelete: () async {
+          try {
+            final authProvider =
+                Provider.of<AuthProvider>(context, listen: false);
+            final userId = await authProvider.getUserId();
+            await _userPlaceService.deletePlace(userId, place.placeId);
+            await _fetchUserPlaces();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Метка удалена')),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Ошибка при удалении метки: $e')),
+            );
+          }
+        },
+      ),
+    );
+  }
+
   // Исправленный метод для запроса пешеходного маршрута
   Future<PedestrianSessionResult> _requestPedestrianRoute(
       Point startPoint, Point endPoint) async {
@@ -258,7 +348,10 @@ class _ExamplePageState extends State<ExamplePage>
 // Исправленный метод построения пешеходного маршрута
   Future<void> _buildRoute(
       Place place, Map<String, dynamic> routeInfo, AppLatLong location) async {
-    setState(() => _isRouteCalculating = true);
+    setState(() {
+      _isRouteCalculating = true;
+      _destinationName = place.name;
+    });
 
     try {
       final startPoint =
@@ -349,6 +442,7 @@ class _ExamplePageState extends State<ExamplePage>
       _destinationPlacemark = null;
       _routeDuration = null;
       _routeDistance = null;
+      _destinationName = null;
     });
     _updateMapObjects();
   }
@@ -478,7 +572,7 @@ class _ExamplePageState extends State<ExamplePage>
       point: Point(latitude: lat, longitude: long),
       icon: PlacemarkIcon.single(
         PlacemarkIconStyle(
-          image: BitmapDescriptor.fromAssetImage('assets/pin.png'),
+          image: BitmapDescriptor.fromAssetImage('assets/location.png'),
           scale: 0.2,
         ),
       ),
@@ -491,149 +585,199 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   void _handleMapLongPress(Point point) async {
+    // Сохраняем текущую позицию камеры
+    final currentPosition = await _mapController.getCameraPosition();
+
     // Создаем временную метку
     final tempPlacemark = PlacemarkMapObject(
       mapId: const MapObjectId('temp_placemark'),
       point: point,
       icon: PlacemarkIcon.single(
         PlacemarkIconStyle(
-          image: BitmapDescriptor.fromAssetImage('assets/logo.png'),
-          scale: 0.8,
-          anchor: const Offset(0.5, 0.5),
-          rotationType: RotationType.noRotation,
+          image: BitmapDescriptor.fromAssetImage('assets/pin.png'),
+          scale: 0.2,
+          anchor: const Offset(0.5, 1.0),
         ),
       ),
       opacity: 1.0,
     );
 
     setState(() {
-      // Удаляем предыдущую временную метку, если она существует
       _mapObjects.removeWhere((obj) => obj.mapId.value == 'temp_placemark');
       _mapObjects.add(tempPlacemark);
       _tempPlacemark = tempPlacemark;
     });
 
-    _showInteractionMenu(point);
-  }
+    await _mapController.moveCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: point,
+          zoom: currentPosition.zoom,
+        ),
+      ),
+      animation: const MapAnimation(
+        type: MapAnimationType.smooth,
+        duration: 0.5,
+      ),
+    );
 
-  void _showInteractionMenu(Point point) {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          decoration: BoxDecoration(
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          decoration: const BoxDecoration(
             color: Colors.white,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(20),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
-              ),
-            ],
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
           padding: const EdgeInsets.all(16),
-          child: Wrap(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: const BoxDecoration(
+                    color: Colors.grey,
+                    borderRadius: BorderRadius.all(Radius.circular(2)),
+                  ),
+                ),
+              ),
+              TextField(
+                controller: _placeNameController,
+                decoration: InputDecoration(
+                  labelText: 'Название места',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              Row(
                 children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: const BoxDecoration(
-                        color: Colors.grey,
-                        borderRadius: BorderRadius.all(Radius.circular(2)),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        if (location != null) {
+                          _buildRoute(
+                            Place(
+                              placeId: 0,
+                              name: _placeNameController.text.isEmpty
+                                  ? 'Новое место'
+                                  : _placeNameController.text,
+                              description: '',
+                              latitude: point.latitude,
+                              longitude: point.longitude,
+                              imageUrl: null,
+                            ),
+                            {},
+                            location!,
+                          );
+                        }
+                        Navigator.pop(context);
+                      },
+                      icon: const Icon(Icons.directions_walk, size: 20),
+                      label: const Text('Маршрут'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ),
-                  TextField(
-                    controller: _placeNameController,
-                    decoration: InputDecoration(
-                      labelText: 'Название места',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                    ),
-                    onChanged: (value) {
-                      setState(
-                          () {}); // Обновляем состояние при изменении текста
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      if (location != null) {
-                        _buildRoute(
-                          Place(
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        try {
+                          final authProvider =
+                              Provider.of<AuthProvider>(context, listen: false);
+                          final userId = await authProvider.getUserId();
+                          print('Creating place for userId: $userId');
+
+                          if (userId <= 0) {
+                            throw Exception('Invalid userId: $userId');
+                          }
+
+                          final place = UserCustomPlace(
                             placeId: 0,
-                            name: _placeNameController.text,
+                            userId: userId,
+                            name: _placeNameController.text.isEmpty
+                                ? 'Новое место'
+                                : _placeNameController.text,
                             description: '',
                             latitude: point.latitude,
                             longitude: point.longitude,
+                            categoryId: 1,
                             imageUrl: null,
-                          ),
-                          {},
-                          location!,
+                          );
+                          await _userPlaceService.createPlace(userId, place);
+                          await _fetchUserPlaces();
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Место сохранено')),
+                          );
+                        } catch (e) {
+                          print('Error creating place: $e');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                                content: Text('Ошибка при сохранении: $e')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.save, size: 20),
+                      label: const Text('Сохранить'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        final place = {
+                          'name': _placeNameController.text.isEmpty
+                              ? 'Новое место'
+                              : _placeNameController.text,
+                          'latitude': point.latitude,
+                          'longitude': point.longitude,
+                        };
+                        Navigator.pushNamed(
+                          context,
+                          '/create_meetup',
+                          arguments: place,
                         );
-                      }
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.directions_walk),
-                    label: const Text('Построить маршрут'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                      },
+                      icon: const Icon(Icons.group_add, size: 20),
+                      label: const Text('Встреча'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      // TODO: Реализовать сохранение метки
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.save),
-                    label: const Text('Сохранить метку'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      // TODO: Реализовать создание встречи
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.group_add),
-                    label: const Text('Создать встречу'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
                 ],
               ),
             ],
@@ -641,7 +785,6 @@ class _ExamplePageState extends State<ExamplePage>
         ),
       ),
     ).then((_) {
-      // Удаляем временную метку при закрытии меню
       setState(() {
         if (_tempPlacemark != null) {
           _mapObjects.removeWhere((obj) => obj.mapId.value == 'temp_placemark');
@@ -654,8 +797,18 @@ class _ExamplePageState extends State<ExamplePage>
 
   @override
   void dispose() {
-    _mapController.dispose();
+    if (_mapController != null) {
+      _mapController.dispose();
+    }
     super.dispose();
+  }
+
+  @override
+  void deactivate() {
+    if (_mapController != null) {
+      _mapController.dispose();
+    }
+    super.deactivate();
   }
 
   @override
@@ -731,6 +884,7 @@ class _ExamplePageState extends State<ExamplePage>
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Row(
                             children: [
@@ -740,12 +894,16 @@ class _ExamplePageState extends State<ExamplePage>
                                 color: Colors.green[700],
                               ),
                               const SizedBox(width: 8),
-                              Text(
-                                'Пешеходный маршрут',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey[800],
+                              Expanded(
+                                child: Text(
+                                  _destinationName ?? 'Пешеходный маршрут',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey[800],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -765,6 +923,8 @@ class _ExamplePageState extends State<ExamplePage>
                     IconButton(
                       icon: const Icon(Icons.close),
                       onPressed: _clearRoute,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
                   ],
                 ),

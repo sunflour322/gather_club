@@ -19,7 +19,9 @@ class AccountPage extends StatefulWidget {
 class _AccountPageState extends State<AccountPage> {
   Map<String, dynamic>? _userData;
   List<Place> _userPlaces = [];
-  List<Friend> _friends = [];
+  List<Friend> _acceptedFriends = [];
+  List<Friend> _incomingRequests = [];
+  List<Friend> _outgoingRequests = [];
   bool _isLoading = true;
   late final FriendService _friendService;
 
@@ -58,24 +60,26 @@ class _AccountPageState extends State<AccountPage> {
       final incomingRequests = await _friendService.getIncomingRequests(token);
       final outgoingRequests = await _friendService.getOutgoingRequests(token);
 
-      print('Loaded friends: $friends');
-      print('Loaded incoming requests: $incomingRequests');
-      print('Loaded outgoing requests: $outgoingRequests');
-
-      setState(() {
-        _userData = Map<String, dynamic>.from(json.decode(response.body));
-        _friends = [...friends, ...incomingRequests, ...outgoingRequests];
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _userData = Map<String, dynamic>.from(json.decode(response.body));
+          _acceptedFriends = friends;
+          _incomingRequests = incomingRequests;
+          _outgoingRequests = outgoingRequests;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Error loading user data: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ошибка: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -83,16 +87,23 @@ class _AccountPageState extends State<AccountPage> {
     try {
       final token =
           await Provider.of<AuthProvider>(context, listen: false).getToken();
-      if (token == null) {
-        throw Exception('Не авторизован');
-      }
+      if (token == null) throw Exception('Не авторизован');
 
-      await _friendService.acceptFriendRequest(friendshipId, token);
-      await _loadUserData(); // Перезагружаем данные
+      final friend =
+          await _friendService.acceptFriendRequest(friendshipId, token);
+
+      if (mounted) {
+        setState(() {
+          _incomingRequests.removeWhere((f) => f.friendshipId == friendshipId);
+          _acceptedFriends.add(friend);
+        });
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
     }
   }
 
@@ -100,16 +111,21 @@ class _AccountPageState extends State<AccountPage> {
     try {
       final token =
           await Provider.of<AuthProvider>(context, listen: false).getToken();
-      if (token == null) {
-        throw Exception('Не авторизован');
-      }
+      if (token == null) throw Exception('Не авторизован');
 
       await _friendService.rejectFriendRequest(friendshipId, token);
-      await _loadUserData(); // Перезагружаем данные
+
+      if (mounted) {
+        setState(() {
+          _incomingRequests.removeWhere((f) => f.friendshipId == friendshipId);
+        });
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
     }
   }
 
@@ -117,16 +133,25 @@ class _AccountPageState extends State<AccountPage> {
     try {
       final token =
           await Provider.of<AuthProvider>(context, listen: false).getToken();
-      if (token == null) {
-        throw Exception('Не авторизован');
-      }
+      if (token == null) throw Exception('Не авторизован');
 
-      // TODO: Реализовать удаление из друзей на бэкенде
-      await _loadUserData(); // Перезагружаем данные
+      await _friendService.deleteFriend(friendshipId, token);
+
+      if (mounted) {
+        setState(() {
+          _acceptedFriends.removeWhere((f) => f.friendshipId == friendshipId);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Друг успешно удален')),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -333,19 +358,6 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Widget _buildStatsSection() {
-    final acceptedFriends =
-        _friends.where((f) => f.status.toLowerCase() == 'accepted').toList();
-    final incomingRequests = _friends
-        .where((f) => f.status.toLowerCase() == 'pending' && !f.isOutgoing)
-        .toList();
-    final outgoingRequests = _friends
-        .where((f) => f.status.toLowerCase() == 'pending' && f.isOutgoing)
-        .toList();
-
-    print('Stats - Accepted friends: ${acceptedFriends.length}');
-    print('Stats - Incoming requests: ${incomingRequests.length}');
-    print('Stats - Outgoing requests: ${outgoingRequests.length}');
-
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
@@ -367,9 +379,9 @@ class _AccountPageState extends State<AccountPage> {
                   onPressed: _showFriendsBottomSheet,
                   icon: const Icon(Icons.people),
                   label: Text(
-                    incomingRequests.isNotEmpty
-                        ? 'Друзья (${acceptedFriends.length}) • ${incomingRequests.length}'
-                        : 'Друзья (${acceptedFriends.length})',
+                    _incomingRequests.isNotEmpty
+                        ? 'Друзья (${_acceptedFriends.length}) • ${_incomingRequests.length}'
+                        : 'Друзья (${_acceptedFriends.length})',
                   ),
                 ),
               ],
@@ -379,7 +391,7 @@ class _AccountPageState extends State<AccountPage> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildStatItem('12', 'Встреч'),
-                _buildStatItem('${acceptedFriends.length}', 'Друзей'),
+                _buildStatItem('${_acceptedFriends.length}', 'Друзей'),
                 _buildStatItem('${_userPlaces.length}', 'Мест'),
                 _buildStatItem('150', 'Очков'),
               ],
@@ -424,13 +436,18 @@ class _AccountPageState extends State<AccountPage> {
           minChildSize: 0.5,
           maxChildSize: 0.9,
           builder: (context, scrollController) => FriendsBottomSheet(
-            friends: _friends,
+            friends: [
+              ..._acceptedFriends,
+              ..._incomingRequests,
+              ..._outgoingRequests
+            ],
             onRemoveFriend: _handleRemoveFriend,
             onAcceptRequest: _handleAcceptRequest,
             onDeclineRequest: _handleDeclineRequest,
             onAddFriend: () {
               Navigator.of(context).pushNamed('/friends/search');
             },
+            onFriendsUpdated: _loadUserData,
           ),
         ),
       ),
@@ -456,6 +473,84 @@ class _AccountPageState extends State<AccountPage> {
               _buildUserInfoSection(),
               _buildStatsSection(),
               _buildUserPlacesSection(),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.red.shade400, Colors.red.shade700],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    borderRadius: BorderRadius.circular(15),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () async {
+                        try {
+                          final authProvider =
+                              Provider.of<AuthProvider>(context, listen: false);
+                          await authProvider.logout();
+                          if (mounted) {
+                            // Очищаем состояние
+                            setState(() {
+                              _userData = null;
+                              _userPlaces = [];
+                              _acceptedFriends = [];
+                              _incomingRequests = [];
+                              _outgoingRequests = [];
+                            });
+                            // Перенаправляем на страницу логина
+                            Navigator.of(context).pushNamedAndRemoveUntil(
+                              '/login',
+                              (route) => false,
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Ошибка при выходе: $e')),
+                            );
+                          }
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(15),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(
+                              Icons.logout_rounded,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Выйти из аккаунта',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               const SizedBox(height: 20),
             ],
           ),

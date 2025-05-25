@@ -31,6 +31,7 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
   late final FriendService _friendService;
   bool _isLoading = false;
   List<Friend> _friends = [];
+  Map<int, bool> _processingIds = {};
 
   @override
   void initState() {
@@ -51,15 +52,17 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
       final incomingRequests = await _friendService.getIncomingRequests(token);
       final outgoingRequests = await _friendService.getOutgoingRequests(token);
 
-      setState(() {
-        _friends = [...friends, ...incomingRequests, ...outgoingRequests];
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _friends = [...friends, ...incomingRequests, ...outgoingRequests];
+          _isLoading = false;
+        });
+      }
 
       widget.onFriendsUpdated?.call();
     } catch (e) {
-      setState(() => _isLoading = false);
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Ошибка: ${e.toString()}')),
         );
@@ -67,12 +70,35 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
     }
   }
 
-  Future<void> _handleAcceptRequest(int friendshipId) async {
+  Future<void> _handleAcceptRequest(Friend friend) async {
+    if (_processingIds[friend.friendshipId!] == true) return;
+
     try {
-      await widget.onAcceptRequest(friendshipId);
-      await _refreshFriends();
+      setState(() => _processingIds[friend.friendshipId!] = true);
+
+      await widget.onAcceptRequest(friend.friendshipId!);
+
+      if (mounted) {
+        setState(() {
+          _friends = _friends.map((f) {
+            if (f.friendshipId == friend.friendshipId) {
+              return Friend(
+                userId: f.userId,
+                username: f.username,
+                avatarUrl: f.avatarUrl,
+                status: 'accepted',
+                isOutgoing: f.isOutgoing,
+                friendshipId: f.friendshipId,
+              );
+            }
+            return f;
+          }).toList();
+          _processingIds[friend.friendshipId!] = false;
+        });
+      }
     } catch (e) {
       if (mounted) {
+        setState(() => _processingIds[friend.friendshipId!] = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString())),
         );
@@ -80,12 +106,23 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
     }
   }
 
-  Future<void> _handleDeclineRequest(int friendshipId) async {
+  Future<void> _handleDeclineRequest(Friend friend) async {
+    if (_processingIds[friend.friendshipId!] == true) return;
+
     try {
-      await widget.onDeclineRequest(friendshipId);
-      await _refreshFriends();
+      setState(() => _processingIds[friend.friendshipId!] = true);
+
+      await widget.onDeclineRequest(friend.friendshipId!);
+
+      if (mounted) {
+        setState(() {
+          _friends.removeWhere((f) => f.friendshipId == friend.friendshipId);
+          _processingIds[friend.friendshipId!] = false;
+        });
+      }
     } catch (e) {
       if (mounted) {
+        setState(() => _processingIds[friend.friendshipId!] = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString())),
         );
@@ -93,12 +130,23 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
     }
   }
 
-  Future<void> _handleRemoveFriend(int friendshipId) async {
+  Future<void> _handleRemoveFriend(Friend friend) async {
+    if (_processingIds[friend.friendshipId!] == true) return;
+
     try {
-      await widget.onRemoveFriend(friendshipId);
-      await _refreshFriends();
+      setState(() => _processingIds[friend.friendshipId!] = true);
+
+      await widget.onRemoveFriend(friend.friendshipId!);
+
+      if (mounted) {
+        setState(() {
+          _friends.removeWhere((f) => f.friendshipId == friend.friendshipId);
+          _processingIds[friend.friendshipId!] = false;
+        });
+      }
     } catch (e) {
       if (mounted) {
+        setState(() => _processingIds[friend.friendshipId!] = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString())),
         );
@@ -133,27 +181,122 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
   }
 
   Widget _buildActionButtons(Friend friend) {
+    final bool isProcessing = _processingIds[friend.friendshipId!] == true;
+
     if (friend.status.toLowerCase() == 'pending' && !friend.isOutgoing) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: const Icon(Icons.check, color: Colors.green),
-            onPressed: () => _handleAcceptRequest(friend.friendshipId!),
+            icon: isProcessing
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.check, color: Colors.green),
+            onPressed: isProcessing ? null : () => _handleAcceptRequest(friend),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.red),
-            onPressed: () => _handleDeclineRequest(friend.friendshipId!),
+            icon: isProcessing
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.close, color: Colors.red),
+            onPressed:
+                isProcessing ? null : () => _handleDeclineRequest(friend),
           ),
         ],
       );
     } else if (friend.status.toLowerCase() == 'accepted') {
       return IconButton(
-        icon: const Icon(Icons.person_remove),
-        onPressed: () => _handleRemoveFriend(friend.friendshipId!),
+        icon: isProcessing
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.person_remove),
+        onPressed: isProcessing ? null : () => _handleRemoveFriend(friend),
       );
     }
     return const SizedBox.shrink();
+  }
+
+  Widget _buildFriendsList() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final acceptedFriends =
+        _friends.where((f) => f.status.toLowerCase() == 'accepted').toList();
+    final incomingRequests = _friends
+        .where((f) => f.status.toLowerCase() == 'pending' && !f.isOutgoing)
+        .toList();
+    final outgoingRequests = _friends
+        .where((f) => f.status.toLowerCase() == 'pending' && f.isOutgoing)
+        .toList();
+
+    if (_friends.isEmpty) {
+      return const Expanded(
+        child: Center(
+          child: Text(
+            'У вас пока нет друзей.\nНажмите "Добавить", чтобы найти друзей.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    return Expanded(
+      child: RefreshIndicator(
+        onRefresh: _refreshFriends,
+        child: ListView(
+          children: [
+            if (incomingRequests.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Входящие запросы',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              ...incomingRequests.map((friend) => _buildFriendTile(friend)),
+              const Divider(),
+            ],
+            if (acceptedFriends.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Друзья',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              ...acceptedFriends.map((friend) => _buildFriendTile(friend)),
+            ],
+            if (outgoingRequests.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Исходящие запросы',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              ...outgoingRequests.map((friend) => _buildFriendTile(friend)),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -203,29 +346,7 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
             ),
           ),
           const Divider(),
-          if (_isLoading)
-            const Center(child: CircularProgressIndicator())
-          else if (_friends.isEmpty)
-            const Expanded(
-              child: Center(
-                child: Text(
-                  'У вас пока нет друзей.\nНажмите "Добавить", чтобы найти друзей.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-            )
-          else
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: _refreshFriends,
-                child: ListView.builder(
-                  itemCount: _friends.length,
-                  itemBuilder: (context, index) =>
-                      _buildFriendTile(_friends[index]),
-                ),
-              ),
-            ),
+          _buildFriendsList(),
         ],
       ),
     );

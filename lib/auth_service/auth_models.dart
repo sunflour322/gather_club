@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class RegisterRequest {
   final String username;
   final String email;
@@ -33,12 +35,21 @@ class LoginRequest {
 
 class AuthResponse {
   final String token;
+  final int userId;
 
-  AuthResponse({required this.token});
+  AuthResponse({required this.token, required this.userId});
 
   factory AuthResponse.fromJson(Map<String, dynamic> json) {
+    final token = json['token'] as String;
+    final userIdStr = token.split('.')[1];
+    final decodedPayload =
+        utf8.decode(base64Url.decode(base64Url.normalize(userIdStr)));
+    final payload = jsonDecode(decodedPayload);
+    final userId = int.parse(payload['sub']);
+
     return AuthResponse(
-      token: json['token'],
+      token: token,
+      userId: userId,
     );
   }
 }

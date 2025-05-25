@@ -13,6 +13,11 @@ class AuthProvider with ChangeNotifier {
     return await _authService.getToken();
   }
 
+  Future<int> getUserId() async {
+    final userId = await _authService.getUserId();
+    return int.parse(userId ?? '0');
+  }
+
   Future<bool> login(String usernameOrEmail, String password) async {
     _isLoading = true;
     _errorMessage = null;
@@ -58,7 +63,15 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await _authService.logout();
-    notifyListeners();
+    try {
+      await _authService.logout();
+      _isLoading = false;
+      _errorMessage = null;
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'Ошибка при выходе: $e';
+      notifyListeners();
+      throw e;
+    }
   }
 }

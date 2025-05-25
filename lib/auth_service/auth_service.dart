@@ -14,7 +14,7 @@ class AuthService {
         Uri.parse('$_baseUrl/login'),
         body: jsonEncode(LoginRequest(
           usernameOrEmail: usernameOrEmail,
-          passwordHash: passwordHash, // Изменено
+          passwordHash: passwordHash,
         ).toJson()),
         headers: {'Content-Type': 'application/json'},
       );
@@ -24,7 +24,11 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final authResponse = AuthResponse.fromJson(jsonDecode(response.body));
+        print('Auth response: ${response.body}');
+        print('Parsed userId: ${authResponse.userId}');
         await _storage.write(key: 'jwt_token', value: authResponse.token);
+        await _storage.write(
+            key: 'userId', value: authResponse.userId.toString());
         return true;
       }
       return false;
@@ -56,12 +60,22 @@ class AuthService {
     return await _storage.read(key: 'jwt_token');
   }
 
+  Future<String?> getUserId() async {
+    return await _storage.read(key: 'userId');
+  }
+
   Future<bool> isLoggedIn() async {
     final token = await getToken();
     return token != null;
   }
 
   Future<void> logout() async {
-    await _storage.delete(key: 'jwt_token');
+    try {
+      await _storage.deleteAll();
+      _client.close();
+    } catch (e) {
+      print('Error during logout: $e');
+      throw e;
+    }
   }
 }

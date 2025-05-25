@@ -210,4 +210,41 @@ class FriendService {
       throw Exception('Не удалось получить информацию о пользователе');
     }
   }
+
+  Future<void> deleteFriend(int friendshipId, String token) async {
+    final currentUserId = await getCurrentUserId(token);
+
+    // Сначала получаем информацию о дружбе, чтобы узнать ID друга
+    final friendsResponse = await _client.get(
+      Uri.parse('$_baseUrl/friendships/$currentUserId/friends'),
+      headers: _getAuthHeaders(token),
+    );
+
+    if (friendsResponse.statusCode != 200) {
+      throw Exception('Не удалось получить информацию о друзьях');
+    }
+
+    final List<dynamic> friendships = jsonDecode(friendsResponse.body);
+    final friendship = friendships.firstWhere(
+      (f) => f['id'] == friendshipId || f['friendshipId'] == friendshipId,
+      orElse: () => throw Exception('Дружба не найдена'),
+    );
+
+    final friendId = friendship['user2Id'] == currentUserId
+        ? friendship['user1Id']
+        : friendship['user2Id'];
+
+    final response = await _client.delete(
+      Uri.parse('$_baseUrl/friendships/$currentUserId/friends/$friendId'),
+      headers: _getAuthHeaders(token),
+    );
+
+    print(
+        'DELETE /friendships/friends Response: ${response.statusCode} - ${response.body}');
+
+    if (response.statusCode != 200) {
+      throw Exception(
+          'Не удалось удалить друга. Статус: ${response.statusCode}, Ответ: ${response.body}');
+    }
+  }
 }
