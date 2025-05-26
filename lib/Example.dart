@@ -7,6 +7,7 @@ import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/auth_service/auth_service.dart';
 import 'package:gather_club/map_service/location.dart';
 import 'package:gather_club/place_serice/place.dart';
+import 'package:gather_club/place_serice/place_image_service.dart';
 import 'package:gather_club/place_serice/place_info_dialog.dart';
 import 'package:gather_club/place_serice/place_repository.dart';
 import 'package:geolocator/geolocator.dart';
@@ -17,6 +18,8 @@ import 'dart:convert';
 import 'services/user_custom_place_service.dart';
 import 'place_serice/user_custom_place.dart';
 import 'widgets/user_place_info_dialog.dart';
+import 'package:gather_club/services/user_location_service.dart';
+import 'package:gather_club/widgets/friend_info_dialog.dart';
 
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
@@ -46,6 +49,7 @@ class ExamplePage extends StatefulWidget {
 class _ExamplePageState extends State<ExamplePage>
     with AutomaticKeepAliveClientMixin {
   final LocationService _locationService = LocationService();
+  late UserLocationService _userLocationService;
   YandexMapController? _mapController;
   final List<MapObject> _mapObjects = [];
   bool _isLoading = true;
@@ -65,7 +69,9 @@ class _ExamplePageState extends State<ExamplePage>
   TextEditingController _placeNameController = TextEditingController();
   late UserCustomPlaceService _userPlaceService;
   List<UserCustomPlace> _userPlaces = [];
-  bool _disposed = false; // Флаг для отслеживания состояния dispose
+  Timer? _locationUpdateTimer;
+  Timer? _friendsLocationUpdateTimer;
+  bool _disposed = false;
   @override
   bool get wantKeepAlive => true;
 
@@ -74,9 +80,12 @@ class _ExamplePageState extends State<ExamplePage>
     super.initState();
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _userPlaceService = UserCustomPlaceService(authProvider);
+    _userLocationService = UserLocationService(authProvider);
     _initLocation();
     _fetchPlaces();
     _fetchUserPlaces();
+    _startLocationUpdates();
+    _startFriendsLocationUpdates();
   }
 
   @override
@@ -904,10 +913,187 @@ class _ExamplePageState extends State<ExamplePage>
     }
   }
 
+  void _startLocationUpdates() {
+    _locationUpdateTimer =
+        Timer.periodic(const Duration(minutes: 1), (timer) async {
+      if (!_disposed && location != null) {
+        try {
+          final userId = await Provider.of<AuthProvider>(context, listen: false)
+              .getUserId();
+          await _userLocationService.updateLocation(
+            userId,
+            UserLocation(
+              userId: userId,
+              latitude: location!.lat,
+              longitude: location!.long,
+              timestamp: DateTime.now(),
+              isPublic: true,
+            ),
+          );
+        } catch (e) {
+          print('Error updating location: $e');
+        }
+      }
+    });
+  }
+
+  void _startFriendsLocationUpdates() {
+    _friendsLocationUpdateTimer =
+        Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (!_disposed) {
+        _updateFriendsLocations();
+      }
+    });
+  }
+
+  Future<void> _updateFriendsLocations() async {
+    try {
+      print('Starting friends locations update...');
+      final friendsLocations = await _userLocationService.getFriendsLocations();
+      print('Received ${friendsLocations.length} friend locations');
+
+      for (var location in friendsLocations) {
+        print('Friend location details:');
+        print('- UserId: ${location.userId}');
+        print('- Username: ${location.userName}');
+        print('- Coordinates: ${location.latitude}, ${location.longitude}');
+        print('- Avatar URL: ${location.userAvatar}');
+        print('- Timestamp: ${location.timestamp}');
+      }
+
+      if (_disposed) {
+        print('Widget is disposed, stopping update');
+        return;
+      }
+
+      setState(() {
+        // Подсчитываем количество меток друзей до удаления
+        final beforeCount = _mapObjects
+            .where((obj) => obj.mapId.value.startsWith('friend_'))
+            .length;
+        print('Friend markers before removal: $beforeCount');
+
+        // Удаляем старые метки друзей
+        _mapObjects.removeWhere((obj) => obj.mapId.value.startsWith('friend_'));
+        print('Removed old friend markers');
+
+        // Добавляем новые метки друзей
+        for (final friendLocation in friendsLocations) {
+          print(
+              'Adding marker for friend ${friendLocation.userId} at ${friendLocation.latitude}, ${friendLocation.longitude}');
+          _addFriendPlacemark(friendLocation);
+        }
+
+        // Подсчитываем количество меток после добавления
+        final afterCount = _mapObjects
+            .where((obj) => obj.mapId.value.startsWith('friend_'))
+            .length;
+        print('Friend markers after update: $afterCount');
+      });
+    } catch (e, stackTrace) {
+      print('Error updating friends locations: $e');
+      print('Stack trace: $stackTrace');
+    }
+  }
+
+  Future<void> _addFriendPlacemark(UserLocation friendLocation) async {
+    try {
+      print('Starting to create placemark for friend ${friendLocation.userId}');
+      print('Friend location data:');
+      print('- Username: ${friendLocation.userName}');
+      print('- Avatar URL: ${friendLocation.userAvatar}');
+      print(
+          '- Coordinates: ${friendLocation.latitude}, ${friendLocation.longitude}');
+
+      final Uint8List? avatarBytes = friendLocation.userAvatar != null
+          ? await _createRoundedThumbnail(friendLocation.userAvatar!, 80)
+          : null;
+      print(
+          'Avatar processing result: ${avatarBytes != null ? 'success' : 'using default'}');
+
+      if (_disposed) {
+        print('Widget disposed during avatar processing');
+        return;
+      }
+
+      print('Creating friend placemark object');
+      final friendPlacemark = PlacemarkMapObject(
+        mapId: MapObjectId('friend_${friendLocation.userId}'),
+        point: Point(
+            latitude: friendLocation.latitude,
+            longitude: friendLocation.longitude),
+        icon: PlacemarkIcon.single(
+          PlacemarkIconStyle(
+            image: avatarBytes != null
+                ? BitmapDescriptor.fromBytes(avatarBytes)
+                : BitmapDescriptor.fromAssetImage('assets/friend_avatar.png'),
+            scale: 0.5,
+          ),
+        ),
+        opacity: 1.0,
+        onTap: (_, __) => _showFriendInfo(friendLocation),
+      );
+      print('Friend placemark object created successfully');
+
+      if (_disposed) {
+        print('Widget disposed before adding to map objects');
+        return;
+      }
+
+      setState(() {
+        print('Adding friend placemark to map objects');
+        final beforeCount = _mapObjects.length;
+        _mapObjects.add(friendPlacemark);
+        final afterCount = _mapObjects.length;
+        print('Map objects count: before=$beforeCount, after=$afterCount');
+      });
+      print('Friend placemark added successfully');
+    } catch (e, stackTrace) {
+      print('Error adding friend placemark: $e');
+      print('Stack trace: $stackTrace');
+    }
+  }
+
+  void _showFriendInfo(UserLocation friendLocation) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => FriendInfoDialog(
+        friendLocation: friendLocation,
+        onRouteBuilt: () {
+          if (location != null) {
+            _buildRoute(
+              Place(
+                placeId: friendLocation.userId,
+                name: friendLocation.userName ?? 'Друг',
+                description: null,
+                latitude: friendLocation.latitude,
+                longitude: friendLocation.longitude,
+                imageUrl: friendLocation.userAvatar,
+              ),
+              {},
+              location!,
+            );
+          }
+          Navigator.pop(context);
+        },
+        onRouteCleared: _clearRoute,
+        onChat: () {
+          Navigator.pop(context);
+          Navigator.pushNamed(context, '/chat',
+              arguments: friendLocation.userId);
+        },
+      ),
+    );
+  }
+
   @override
   void dispose() {
     print('Disposing ExamplePage');
     _disposed = true;
+    _locationUpdateTimer?.cancel();
+    _friendsLocationUpdateTimer?.cancel();
     _placeNameController.dispose();
     super.dispose();
   }
@@ -939,7 +1125,30 @@ class _ExamplePageState extends State<ExamplePage>
           if (!_isLoading)
             IconButton(
               icon: const Icon(Icons.logout),
-              onPressed: _authService.logout,
+              onPressed: () async {
+                try {
+                  await _authService.logout();
+                  if (mounted) {
+                    // Очищаем состояние
+                    setState(() {
+                      _places = [];
+                      _userPlaces = [];
+                      _mapObjects.clear();
+                    });
+                    // Перенаправляем на страницу логина
+                    Navigator.of(context).pushNamedAndRemoveUntil(
+                      '/login',
+                      (route) => false,
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Ошибка при выходе: $e')),
+                    );
+                  }
+                }
+              },
             ),
           // Кнопка очистки маршрута
           if (_routePolyline != null && !_isLoading)

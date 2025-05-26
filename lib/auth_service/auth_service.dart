@@ -6,11 +6,19 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class AuthService {
   static const String _baseUrl = 'http://212.67.8.92:8080/auth';
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
-  final http.Client _client = http.Client();
+  http.Client _client = http.Client();
+
+  // Метод для получения клиента
+  http.Client get _httpClient {
+    if (_client.hashCode == 0) {
+      _client = http.Client();
+    }
+    return _client;
+  }
 
   Future<bool> login(String usernameOrEmail, String passwordHash) async {
     try {
-      final response = await _client.post(
+      final response = await _httpClient.post(
         Uri.parse('$_baseUrl/login'),
         body: jsonEncode(LoginRequest(
           usernameOrEmail: usernameOrEmail,
@@ -41,7 +49,7 @@ class AuthService {
   Future<bool> register(
       String username, String email, String passwordHash) async {
     try {
-      final response = await _client.post(
+      final response = await _httpClient.post(
         Uri.parse('$_baseUrl/register'),
         body: jsonEncode(RegisterRequest(
           username: username,
@@ -73,6 +81,8 @@ class AuthService {
     try {
       await _storage.deleteAll();
       _client.close();
+      // Создаем новый клиент
+      _client = http.Client();
     } catch (e) {
       print('Error during logout: $e');
       throw e;

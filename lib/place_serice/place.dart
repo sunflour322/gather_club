@@ -48,17 +48,21 @@ class Place {
 
 class PlaceImage {
   final int imageId;
+  final int placeId;
   final String imageUrl;
-  final int? uploadedBy;
+  final int uploadedById;
+  final String uploaderUsername;
   final DateTime uploadedAt;
   final bool isApproved;
-  final int likes;
-  final int dislikes;
+  int likes;
+  int dislikes;
 
   PlaceImage({
     required this.imageId,
+    required this.placeId,
     required this.imageUrl,
-    this.uploadedBy,
+    required this.uploadedById,
+    required this.uploaderUsername,
     required this.uploadedAt,
     required this.isApproved,
     required this.likes,
@@ -68,10 +72,12 @@ class PlaceImage {
   factory PlaceImage.fromJson(Map<String, dynamic> json) {
     return PlaceImage(
       imageId: json['imageId'],
+      placeId: json['placeId'],
       imageUrl: json['imageUrl'],
-      uploadedBy: json['uploadedBy'],
+      uploadedById: json['uploadedById'],
+      uploaderUsername: json['uploaderUsername'],
       uploadedAt: DateTime.parse(json['uploadedAt']),
-      isApproved: json['isApproved'],
+      isApproved: json['isApproved'] ?? false,
       likes: json['likes'] ?? 0,
       dislikes: json['dislikes'] ?? 0,
     );

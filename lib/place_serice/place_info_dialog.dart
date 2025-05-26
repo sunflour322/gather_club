@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:gather_club/map_service/location.dart';
 import 'package:gather_club/place_serice/place.dart';
+import 'package:gather_club/place_serice/place_image_service.dart';
+import 'package:gather_club/place_serice/rating_state_service.dart';
+import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:math' as math;
 
 class PlaceInfoDialog extends StatelessWidget {
   final Place place;
@@ -135,21 +142,126 @@ class _PlaceContent extends StatefulWidget {
   State<_PlaceContent> createState() => _PlaceContentState();
 }
 
-class _PlaceContentState extends State<_PlaceContent> {
+class _PlaceContentState extends State<_PlaceContent>
+    with SingleTickerProviderStateMixin {
+  late PlaceImageService _imageService;
+  late RatingStateService _ratingStateService;
   late List<PlaceImage> _images;
   int _currentImageIndex = 0;
   bool _isLoadingImages = false;
   bool _isRating = false;
   bool _routeBuilt = false;
   bool _isLoadingRoute = false;
+  bool _hasLiked = false;
+  bool _hasDisliked = false;
+  final ImagePicker _picker = ImagePicker();
+  late int _userId;
+
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
 
   @override
   void initState() {
     super.initState();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _imageService = PlaceImageService(authProvider);
+    _ratingStateService = RatingStateService();
     _images = widget.initialImages ?? [];
+    _initializeUserId();
     if (_images.isEmpty) {
       _loadImages();
+    } else {
+      _initializeRatingStates();
     }
+
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.2,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+
+    _animationController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _animationController.reverse();
+      }
+    });
+  }
+
+  Future<void> _initializeUserId() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _userId = await authProvider.getUserId();
+  }
+
+  void _initializeRatingStates() async {
+    if (_images.isEmpty) return;
+
+    for (var image in _images) {
+      try {
+        if (!_ratingStateService.hasRating(_userId, image.imageId)) {
+          final ratings =
+              await _imageService.getRatingState(image.imageId, _userId);
+
+          _ratingStateService.setRatingState(_userId, image.imageId, {
+            'likes': image.likes,
+            'dislikes': image.dislikes,
+            'liked': ratings['liked'] ?? false,
+            'disliked': ratings['disliked'] ?? false,
+          });
+        }
+
+        final state =
+            _ratingStateService.getRatingState(_userId, image.imageId);
+        if (state != null && mounted) {
+          setState(() {
+            image.likes = state['likes'];
+            image.dislikes = state['dislikes'];
+            if (_currentImageIndex < _images.length &&
+                _images[_currentImageIndex].imageId == image.imageId) {
+              _hasLiked = state['liked'];
+              _hasDisliked = state['disliked'];
+            }
+          });
+        }
+      } catch (e) {
+        print('Error initializing rating state for image ${image.imageId}: $e');
+      }
+    }
+  }
+
+  void _updateCurrentImageRatingState() {
+    if (_currentImageIndex >= _images.length) return;
+
+    final currentImageId = _images[_currentImageIndex].imageId;
+    final state = _ratingStateService.getRatingState(_userId, currentImageId);
+
+    if (state != null && mounted) {
+      setState(() {
+        _hasLiked = state['liked'];
+        _hasDisliked = state['disliked'];
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlaceContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialImages != oldWidget.initialImages) {
+      _images = widget.initialImages ?? [];
+      _initializeRatingStates();
+    }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadImages() async {
@@ -157,11 +269,13 @@ class _PlaceContentState extends State<_PlaceContent> {
 
     setState(() => _isLoadingImages = true);
     try {
-      // Здесь должен быть вызов API для загрузки изображений
-      // Для примера просто имитируем загрузку
-      await Future.delayed(const Duration(seconds: 1));
+      final images = await _imageService.getPlaceImages(widget.place.placeId);
       if (mounted) {
-        setState(() => _isLoadingImages = false);
+        setState(() {
+          _images = images;
+          _isLoadingImages = false;
+        });
+        _initializeRatingStates();
       }
     } catch (e) {
       if (mounted) {
@@ -170,6 +284,32 @@ class _PlaceContentState extends State<_PlaceContent> {
           SnackBar(content: Text('Ошибка загрузки изображений: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _uploadImage() async {
+    try {
+      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      if (image == null) return;
+
+      // TODO: Здесь должна быть логика загрузки изображения на сервер
+      // и получения URL. Сейчас это заглушка.
+      final String imageUrl = "http://example.com/image.jpg";
+
+      final uploadedImage = await _imageService.uploadImage(
+        widget.place.placeId,
+        imageUrl,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Изображение загружено и ожидает проверки'),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка загрузки изображения: $e')),
+      );
     }
   }
 
@@ -289,8 +429,10 @@ class _PlaceContentState extends State<_PlaceContent> {
                                         itemCount: _images.length,
                                         onPageChanged: (index) {
                                           if (mounted) {
-                                            setState(() =>
-                                                _currentImageIndex = index);
+                                            setState(() {
+                                              _currentImageIndex = index;
+                                              _updateCurrentImageRatingState();
+                                            });
                                           }
                                         },
                                         itemBuilder: (context, index) {
@@ -424,32 +566,89 @@ class _PlaceContentState extends State<_PlaceContent> {
   }
 
   Future<void> _rateImage(bool isLike) async {
-    // if (_isRating || _images.isEmpty) return;
+    if (_isRating || _images.isEmpty) return;
 
-    // setState(() => _isRating = true);
+    setState(() => _isRating = true);
 
-    // try {
-    //   // Имитация API вызова для оценки изображения
-    //   await Future.delayed(const Duration(milliseconds: 500));
+    try {
+      final currentImage = _images[_currentImageIndex];
+      final currentImageId = currentImage.imageId;
+      final currentState =
+          _ratingStateService.getRatingState(_userId, currentImageId);
 
-    //   if (mounted) {
-    //     setState(() {
-    //       if (isLike) {
-    //         _images[_currentImageIndex].likes++;
-    //       } else {
-    //         _images[_currentImageIndex].dislikes++;
-    //       }
-    //       _isRating = false;
-    //     });
-    //   }
-    // } catch (e) {
-    //   if (mounted) {
-    //     setState(() => _isRating = false);
-    //     ScaffoldMessenger.of(context).showSnackBar(
-    //       SnackBar(content: Text('Ошибка при оценке: $e')),
-    //     );
-    //   }
-    // }
+      // Если уже стоит такая же оценка - выходим
+      if ((isLike && _ratingStateService.hasLiked(_userId, currentImageId)) ||
+          (!isLike &&
+              _ratingStateService.hasDisliked(_userId, currentImageId))) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(isLike
+                  ? 'Вы уже поставили лайк'
+                  : 'Вы уже поставили дизлайк')),
+        );
+        return;
+      }
+
+      // Получаем текущие значения счетчиков
+      int currentLikes = currentState?['likes'] ?? currentImage.likes;
+      int currentDislikes = currentState?['dislikes'] ?? currentImage.dislikes;
+
+      // Обновляем состояние и UI
+      if (isLike) {
+        // Если был дизлайк - убираем его
+        if (_ratingStateService.hasDisliked(_userId, currentImageId)) {
+          await _imageService.removeDislike(currentImageId);
+          currentDislikes = math.max<int>(0, currentDislikes - 1);
+        }
+        // Ставим лайк
+        await _imageService.addLike(currentImageId);
+        currentLikes += 1;
+
+        _ratingStateService.setRatingState(_userId, currentImageId, {
+          'likes': currentLikes,
+          'dislikes': currentDislikes,
+          'liked': true,
+          'disliked': false,
+        });
+      } else {
+        // Если был лайк - убираем его
+        if (_ratingStateService.hasLiked(_userId, currentImageId)) {
+          await _imageService.removeLike(currentImageId);
+          currentLikes = math.max<int>(0, currentLikes - 1);
+        }
+        // Ставим дизлайк
+        await _imageService.addDislike(currentImageId);
+        currentDislikes += 1;
+
+        _ratingStateService.setRatingState(_userId, currentImageId, {
+          'likes': currentLikes,
+          'dislikes': currentDislikes,
+          'liked': false,
+          'disliked': true,
+        });
+      }
+
+      // Обновляем UI
+      if (mounted) {
+        setState(() {
+          currentImage.likes = currentLikes;
+          currentImage.dislikes = currentDislikes;
+          _hasLiked = isLike;
+          _hasDisliked = !isLike;
+        });
+      }
+
+      _animationController.forward();
+    } catch (e) {
+      print('Error during rating operation: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось выполнить действие: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isRating = false);
+      }
+    }
   }
 
   Widget _buildNoImagesPlaceholder() {
@@ -480,11 +679,35 @@ class _PlaceContentState extends State<_PlaceContent> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.thumb_up, size: 16, color: Colors.green),
+          AnimatedBuilder(
+            animation: _scaleAnimation,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _hasLiked ? _scaleAnimation.value : 1.0,
+                child: Icon(
+                  Icons.thumb_up,
+                  size: 16,
+                  color: _hasLiked ? Colors.green : Colors.grey,
+                ),
+              );
+            },
+          ),
           const SizedBox(width: 4),
           Text('${image.likes}'),
           const SizedBox(width: 16),
-          const Icon(Icons.thumb_down, size: 16, color: Colors.red),
+          AnimatedBuilder(
+            animation: _scaleAnimation,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _hasDisliked ? _scaleAnimation.value : 1.0,
+                child: Icon(
+                  Icons.thumb_down,
+                  size: 16,
+                  color: _hasDisliked ? Colors.red : Colors.grey,
+                ),
+              );
+            },
+          ),
           const SizedBox(width: 4),
           Text('${image.dislikes}'),
         ],
@@ -587,9 +810,7 @@ class _PlaceContentState extends State<_PlaceContent> {
         ),
         _buildActionButton(
           icon: Icons.add_a_photo,
-          onPressed: () {
-            // TODO: Реализовать добавление фото
-          },
+          onPressed: _uploadImage,
         ),
         _buildActionButton(
           icon: Icons.monetization_on,
@@ -600,7 +821,6 @@ class _PlaceContentState extends State<_PlaceContent> {
         _buildActionButton(
           icon: Icons.group_add,
           onPressed: () {
-            // TODO: Реализовать создание встречи
             Navigator.of(context).pushNamed('/chat');
           },
         ),
