@@ -26,17 +26,23 @@ class UserLocation {
   });
 
   factory UserLocation.fromJson(Map<String, dynamic> json) {
-    return UserLocation(
-      userId: json['userId'],
-      latitude: json['latitude'],
-      longitude: json['longitude'],
-      accuracy: json['accuracy'],
-      altitude: json['altitude'],
-      timestamp: DateTime.parse(json['timestamp']),
-      isPublic: json['isPublic'] ?? false,
-      userAvatar: json['userAvatar'],
-      userName: json['userName'],
-    );
+    print('Creating UserLocation from JSON: $json');
+    try {
+      return UserLocation(
+        userId: json['userId'],
+        latitude: json['latitude']?.toDouble() ?? 0.0,
+        longitude: json['longitude']?.toDouble() ?? 0.0,
+        accuracy: json['accuracy']?.toDouble(),
+        altitude: json['altitude']?.toDouble(),
+        timestamp: DateTime.parse(json['timestamp']),
+        isPublic: json['isPublic'] ?? false,
+        userAvatar: json['userAvatar'],
+        userName: json['userName'],
+      );
+    } catch (e) {
+      print('Error parsing UserLocation JSON: $e');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -90,29 +96,90 @@ class UserLocationService {
       final userId = await _authProvider.getUserId();
       if (token == null) throw Exception('Не авторизован');
 
-      print('Making request to: $_baseUrl/$userId/friends/locations');
-      final response = await _client.get(
-        Uri.parse('$_baseUrl/$userId/friends/locations'),
+      // Получаем публичные локации
+      print('Getting public locations...');
+      final locationsResponse = await _client.get(
+        Uri.parse('$_baseUrl/$userId/location/friends'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
       );
 
-      print(
-          'Friends locations response: ${response.statusCode} - ${response.body}');
-
-      if (response.statusCode == 200) {
-        final List<dynamic> locationsJson = jsonDecode(response.body);
-        print('Parsed locations JSON: $locationsJson');
-        final locations =
-            locationsJson.map((json) => UserLocation.fromJson(json)).toList();
-        print('Converted to UserLocation objects: $locations');
-        return locations;
-      } else {
+      if (locationsResponse.statusCode != 200) {
         throw Exception(
-            'Ошибка получения местоположений друзей: ${response.statusCode}');
+            'Ошибка получения локаций: ${locationsResponse.statusCode}');
       }
+
+      final List<dynamic> locationsJson = jsonDecode(locationsResponse.body);
+      print('Received ${locationsJson.length} locations');
+
+      // Создаем Map для хранения последней локации каждого пользователя
+      Map<int, UserLocation> latestLocations = {};
+
+      // Обрабатываем все локации
+      for (var locationJson in locationsJson) {
+        try {
+          print('Processing location: $locationJson');
+          // Пропускаем свои локации
+          if (locationJson['userId'] == userId) {
+            print('Skipping own location');
+            continue;
+          }
+
+          final location = UserLocation.fromJson(locationJson);
+
+          // Проверяем, есть ли уже локация для этого пользователя
+          if (!latestLocations.containsKey(location.userId) ||
+              latestLocations[location.userId]!
+                  .timestamp
+                  .isBefore(location.timestamp)) {
+            // Если локации нет или текущая локация новее - обновляем
+            latestLocations[location.userId] = location;
+          }
+        } catch (e) {
+          print('Error processing location data: $e');
+          continue;
+        }
+      }
+
+      // Получаем информацию о пользователях для каждой локации
+      List<UserLocation> finalLocations = [];
+      for (var location in latestLocations.values) {
+        try {
+          // Получаем информацию о пользователе
+          final userResponse = await _client.get(
+            Uri.parse('$_baseUrl/${location.userId}'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+          );
+
+          if (userResponse.statusCode == 200) {
+            final userJson = jsonDecode(userResponse.body);
+            // Создаем новую локацию с информацией о пользователе
+            finalLocations.add(UserLocation(
+              userId: location.userId,
+              latitude: location.latitude,
+              longitude: location.longitude,
+              accuracy: location.accuracy,
+              altitude: location.altitude,
+              timestamp: location.timestamp,
+              isPublic: location.isPublic,
+              userName: userJson['username'],
+              userAvatar: userJson['avatarUrl'],
+            ));
+          }
+        } catch (e) {
+          print('Error getting user info for location ${location.userId}: $e');
+          finalLocations
+              .add(location); // Добавляем локацию без информации о пользователе
+        }
+      }
+
+      print('Successfully processed ${finalLocations.length} unique locations');
+      return finalLocations;
     } catch (e) {
       print('Error getting friends locations: $e');
       rethrow;

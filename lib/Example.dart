@@ -20,6 +20,9 @@ import 'place_serice/user_custom_place.dart';
 import 'widgets/user_place_info_dialog.dart';
 import 'package:gather_club/services/user_location_service.dart';
 import 'package:gather_club/widgets/friend_info_dialog.dart';
+import 'widgets/friend_info_overlay.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
@@ -57,7 +60,6 @@ class _ExamplePageState extends State<ExamplePage>
   List<Place> _places = [];
   AuthService _authService = AuthService();
   PolylineMapObject? _routePolyline;
-  PlacemarkMapObject? _destinationPlacemark;
   String? _routeDuration;
   String? _routeDistance;
   String? _destinationName;
@@ -72,6 +74,7 @@ class _ExamplePageState extends State<ExamplePage>
   Timer? _locationUpdateTimer;
   Timer? _friendsLocationUpdateTimer;
   bool _disposed = false;
+  UserLocation? _selectedFriend;
   @override
   bool get wantKeepAlive => true;
 
@@ -85,7 +88,12 @@ class _ExamplePageState extends State<ExamplePage>
     _fetchPlaces();
     _fetchUserPlaces();
     _startLocationUpdates();
-    _startFriendsLocationUpdates();
+    _friendsLocationUpdateTimer =
+        Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (!_disposed) {
+        _updateFriendsLocations();
+      }
+    });
   }
 
   @override
@@ -173,16 +181,16 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   Future<void> _addPlacesToMap() async {
-    if (_disposed) return; // Проверяем состояние перед выполнением
+    if (_disposed) return;
 
     try {
       final placemarks = <PlacemarkMapObject>[];
       final _authProvider = Provider.of<AuthProvider>(context, listen: false);
 
       for (final place in _places) {
-        if (_disposed) return; // Проверяем состояние в цикле
+        if (_disposed) return;
 
-        const thumbnailSize = 100;
+        const thumbnailSize = 300;
         PlaceRepository placeRepository = PlaceRepository(_authProvider);
         List<PlaceImage> placeImages = [];
 
@@ -190,13 +198,13 @@ class _ExamplePageState extends State<ExamplePage>
           placeImages = await placeRepository.fetchPlaceImages(place.placeId);
         } catch (e) {
           print('Error fetching images for place ${place.placeId}: $e');
-          continue; // Пропускаем место при ошибке загрузки изображений
+          continue;
         }
 
         if (_disposed) return;
 
         final Uint8List? thumbnailBytes = place.imageUrl != null
-            ? await _createRoundedThumbnail(place.imageUrl!, thumbnailSize)
+            ? await _createSquareThumbnail(place.imageUrl!, thumbnailSize)
             : null;
 
         if (_disposed) return;
@@ -208,8 +216,9 @@ class _ExamplePageState extends State<ExamplePage>
             PlacemarkIconStyle(
               image: thumbnailBytes != null
                   ? BitmapDescriptor.fromBytes(thumbnailBytes)
-                  : BitmapDescriptor.fromAssetImage('assets/logo.png'),
-              scale: 1.0,
+                  : BitmapDescriptor.fromAssetImage(
+                      'assets/default_avatar.png'),
+              scale: thumbnailBytes != null ? 0.3 : 0.2,
             ),
           ),
           opacity: 1,
@@ -262,7 +271,6 @@ class _ExamplePageState extends State<ExamplePage>
 
   Future<Uint8List?> _createRoundedThumbnail(String imageUrl, int size) async {
     try {
-      // Загружаем изображение
       final response = await http.get(Uri.parse(imageUrl));
       if (response.statusCode != 200) return null;
 
@@ -271,7 +279,6 @@ class _ExamplePageState extends State<ExamplePage>
       final frame = await codec.getNextFrame();
       var image = frame.image;
 
-      // Обрезаем до квадрата
       final cropSize = min(image.width, image.height);
       final offsetX = (image.width - cropSize) ~/ 2;
       final offsetY = (image.height - cropSize) ~/ 2;
@@ -284,29 +291,38 @@ class _ExamplePageState extends State<ExamplePage>
         cropSize,
       );
 
-      // Масштабируем до нужного размера
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
+      final padding = size * 0.1;
+      final totalSize = size + (padding * 2);
 
-      // Создаём путь для закруглённого прямоугольника
       final path = Path()
-        ..addRRect(RRect.fromRectAndRadius(
-          Rect.fromLTWH(0, 0, size.toDouble(), size.toDouble()),
-          Radius.circular(size * 0.2), // Закругление 20% от размера
-        ));
+        ..addOval(
+            Rect.fromLTWH(padding, padding, size.toDouble(), size.toDouble()));
 
-      // Рисуем изображение с закруглёнными углами
+      canvas.drawShadow(path, Colors.black, 8.0, true);
       canvas.clipPath(path);
+
       canvas.drawImageRect(
         image,
         Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-        Rect.fromLTWH(0, 0, size.toDouble(), size.toDouble()),
-        Paint(),
+        Rect.fromLTWH(padding, padding, size.toDouble(), size.toDouble()),
+        Paint()..filterQuality = ui.FilterQuality.high,
       );
 
-      // Конвертируем в байты
+      // Добавляем красную обводку
+      final borderPaint = Paint()
+        ..color = Colors.red
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0;
+      canvas.drawCircle(
+        Offset(padding + size / 2, padding + size / 2),
+        size / 2,
+        borderPaint,
+      );
+
       final picture = recorder.endRecording();
-      final img = await picture.toImage(size, size);
+      final img = await picture.toImage(totalSize.toInt(), totalSize.toInt());
       final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
 
       return byteData?.buffer.asUint8List();
@@ -336,6 +352,68 @@ class _ExamplePageState extends State<ExamplePage>
 
     final picture = recorder.endRecording();
     return await picture.toImage(width, height);
+  }
+
+  Future<Uint8List?> _createSquareThumbnail(String imageUrl, int size) async {
+    try {
+      final response = await http.get(Uri.parse(imageUrl));
+      if (response.statusCode != 200) return null;
+
+      final bytes = response.bodyBytes;
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      var image = frame.image;
+
+      final cropSize = min(image.width, image.height);
+      final offsetX = (image.width - cropSize) ~/ 2;
+      final offsetY = (image.height - cropSize) ~/ 2;
+
+      image = await _cropImage(
+        image,
+        offsetX,
+        offsetY,
+        cropSize,
+        cropSize,
+      );
+
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final padding = size * 0.1;
+      final totalSize = size + (padding * 2);
+      final radius = size * 0.2; // Радиус закругления углов
+
+      final rrect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(padding, padding, size.toDouble(), size.toDouble()),
+        Radius.circular(radius),
+      );
+      final path = Path()..addRRect(rrect);
+
+      canvas.drawShadow(path, Colors.black, 8.0, true);
+      canvas.clipPath(path);
+
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        Rect.fromLTWH(padding, padding, size.toDouble(), size.toDouble()),
+        Paint()..filterQuality = ui.FilterQuality.high,
+      );
+
+      // Добавляем белую обводку
+      final borderPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0;
+      canvas.drawRRect(rrect, borderPaint);
+
+      final picture = recorder.endRecording();
+      final img = await picture.toImage(totalSize.toInt(), totalSize.toInt());
+      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+
+      return byteData?.buffer.asUint8List();
+    } catch (e) {
+      print('Error creating square thumbnail: $e');
+      return null;
+    }
   }
 
   void _showPlaceInfo(
@@ -445,17 +523,14 @@ class _ExamplePageState extends State<ExamplePage>
       if (result.routes != null && result.routes!.isNotEmpty) {
         final route = result.routes!.first;
 
-        // Получаем данные о пешеходном маршруте (новый формат)
         final timeText = route.metadata.weight.time.text;
         final distanceText = route.metadata.weight.walkingDistance.text;
 
-        // Обновляем данные маршрута
         setState(() {
           _routeDuration = timeText;
           _routeDistance = distanceText;
         });
 
-        // Остальной код остается без изменений
         final routePolyline = PolylineMapObject(
           mapId: const MapObjectId('current_route'),
           polyline: Polyline(points: route.geometry.points),
@@ -467,21 +542,8 @@ class _ExamplePageState extends State<ExamplePage>
           gapLength: 4,
         );
 
-        final destinationPlacemark = PlacemarkMapObject(
-          mapId: const MapObjectId('route_destination'),
-          point: endPoint,
-          icon: PlacemarkIcon.single(
-            PlacemarkIconStyle(
-              image: BitmapDescriptor.fromAssetImage(
-                  'assets/walking_destination.png'),
-              scale: 0.5,
-            ),
-          ),
-        );
-
         setState(() {
           _routePolyline = routePolyline;
-          _destinationPlacemark = destinationPlacemark;
         });
 
         _updateMapObjects();
@@ -522,7 +584,6 @@ class _ExamplePageState extends State<ExamplePage>
 
     _safeSetState(() {
       _routePolyline = null;
-      _destinationPlacemark = null;
       _routeDuration = null;
       _routeDistance = null;
       _destinationName = null;
@@ -534,15 +595,10 @@ class _ExamplePageState extends State<ExamplePage>
     if (_disposed) return;
 
     _safeSetState(() {
-      _mapObjects.removeWhere((obj) =>
-          obj.mapId.value == 'current_route' ||
-          obj.mapId.value == 'route_destination');
+      _mapObjects.removeWhere((obj) => obj.mapId.value == 'current_route');
 
       if (_routePolyline != null) {
         _mapObjects.add(_routePolyline!);
-      }
-      if (_destinationPlacemark != null) {
-        _mapObjects.add(_destinationPlacemark!);
       }
     });
   }
@@ -911,6 +967,9 @@ class _ExamplePageState extends State<ExamplePage>
           _pendingLocation!.latitude, _pendingLocation!.longitude);
       _pendingLocation = null;
     }
+
+    // Загружаем данные о друзьях сразу при создании карты
+    _updateFriendsLocations();
   }
 
   void _startLocationUpdates() {
@@ -952,12 +1011,26 @@ class _ExamplePageState extends State<ExamplePage>
       final friendsLocations = await _userLocationService.getFriendsLocations();
       print('Received ${friendsLocations.length} friend locations');
 
-      for (var location in friendsLocations) {
+      // Фильтруем локации, чтобы исключить некорректные данные
+      final validLocations = friendsLocations.where((location) {
+        final isValid = location.latitude != 0 &&
+            location.longitude != 0 &&
+            location.userId > 0;
+        if (!isValid) {
+          print(
+              'Skipping invalid location for user ${location.userId}: lat=${location.latitude}, lon=${location.longitude}');
+        }
+        return isValid;
+      }).toList();
+
+      print('Valid locations count: ${validLocations.length}');
+
+      for (var location in validLocations) {
         print('Friend location details:');
         print('- UserId: ${location.userId}');
-        print('- Username: ${location.userName}');
+        print('- Username: ${location.userName ?? "Unknown"}');
         print('- Coordinates: ${location.latitude}, ${location.longitude}');
-        print('- Avatar URL: ${location.userAvatar}');
+        print('- Avatar URL: ${location.userAvatar ?? "No avatar"}');
         print('- Timestamp: ${location.timestamp}');
       }
 
@@ -978,7 +1051,7 @@ class _ExamplePageState extends State<ExamplePage>
         print('Removed old friend markers');
 
         // Добавляем новые метки друзей
-        for (final friendLocation in friendsLocations) {
+        for (final friendLocation in validLocations) {
           print(
               'Adding marker for friend ${friendLocation.userId} at ${friendLocation.latitude}, ${friendLocation.longitude}');
           _addFriendPlacemark(friendLocation);
@@ -996,23 +1069,22 @@ class _ExamplePageState extends State<ExamplePage>
     }
   }
 
-  Future<void> _addFriendPlacemark(UserLocation friendLocation) async {
+  Future<void> _addFriendPlacemark(UserLocation friendLocation,
+      {bool startAnimation = true}) async {
     try {
       print('Starting to create placemark for friend ${friendLocation.userId}');
-      print('Friend location data:');
-      print('- Username: ${friendLocation.userName}');
-      print('- Avatar URL: ${friendLocation.userAvatar}');
-      print(
-          '- Coordinates: ${friendLocation.latitude}, ${friendLocation.longitude}');
 
-      final Uint8List? avatarBytes = friendLocation.userAvatar != null
-          ? await _createRoundedThumbnail(friendLocation.userAvatar!, 80)
-          : null;
-      print(
-          'Avatar processing result: ${avatarBytes != null ? 'success' : 'using default'}');
+      Uint8List? avatarBytes;
+      if (friendLocation.userAvatar != null) {
+        try {
+          avatarBytes =
+              await _createRoundedThumbnail(friendLocation.userAvatar!, 200);
+        } catch (e) {
+          print('Error processing avatar: $e');
+        }
+      }
 
       if (_disposed) {
-        print('Widget disposed during avatar processing');
         return;
       }
 
@@ -1026,28 +1098,21 @@ class _ExamplePageState extends State<ExamplePage>
           PlacemarkIconStyle(
             image: avatarBytes != null
                 ? BitmapDescriptor.fromBytes(avatarBytes)
-                : BitmapDescriptor.fromAssetImage('assets/friend_avatar.png'),
-            scale: 0.5,
+                : BitmapDescriptor.fromAssetImage('assets/default_avatar.png'),
+            scale: avatarBytes != null ? 0.8 : 0.3,
           ),
         ),
         opacity: 1.0,
         onTap: (_, __) => _showFriendInfo(friendLocation),
       );
-      print('Friend placemark object created successfully');
-
-      if (_disposed) {
-        print('Widget disposed before adding to map objects');
-        return;
-      }
 
       setState(() {
         print('Adding friend placemark to map objects');
-        final beforeCount = _mapObjects.length;
+        _mapObjects.removeWhere(
+            (obj) => obj.mapId.value == 'friend_${friendLocation.userId}');
         _mapObjects.add(friendPlacemark);
-        final afterCount = _mapObjects.length;
-        print('Map objects count: before=$beforeCount, after=$afterCount');
+        print('Friend placemark added successfully');
       });
-      print('Friend placemark added successfully');
     } catch (e, stackTrace) {
       print('Error adding friend placemark: $e');
       print('Stack trace: $stackTrace');
@@ -1055,37 +1120,15 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
   void _showFriendInfo(UserLocation friendLocation) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => FriendInfoDialog(
-        friendLocation: friendLocation,
-        onRouteBuilt: () {
-          if (location != null) {
-            _buildRoute(
-              Place(
-                placeId: friendLocation.userId,
-                name: friendLocation.userName ?? 'Друг',
-                description: null,
-                latitude: friendLocation.latitude,
-                longitude: friendLocation.longitude,
-                imageUrl: friendLocation.userAvatar,
-              ),
-              {},
-              location!,
-            );
-          }
-          Navigator.pop(context);
-        },
-        onRouteCleared: _clearRoute,
-        onChat: () {
-          Navigator.pop(context);
-          Navigator.pushNamed(context, '/chat',
-              arguments: friendLocation.userId);
-        },
-      ),
-    );
+    setState(() {
+      _selectedFriend = friendLocation;
+    });
+  }
+
+  void _hideFriendInfo() {
+    setState(() {
+      _selectedFriend = null;
+    });
   }
 
   @override
@@ -1241,6 +1284,32 @@ class _ExamplePageState extends State<ExamplePage>
                   ],
                 ),
               ),
+            ),
+          if (_selectedFriend != null)
+            FriendInfoOverlay(
+              friendLocation: _selectedFriend!,
+              onRouteBuilt: () {
+                if (location != null) {
+                  _buildRoute(
+                    Place(
+                      placeId: _selectedFriend!.userId,
+                      name: _selectedFriend!.userName ?? 'Друг',
+                      description: null,
+                      latitude: _selectedFriend!.latitude,
+                      longitude: _selectedFriend!.longitude,
+                      imageUrl: _selectedFriend!.userAvatar,
+                    ),
+                    {},
+                    location!,
+                  );
+                }
+              },
+              onRouteCleared: _clearRoute,
+              onChat: () {
+                Navigator.pushNamed(context, '/chat',
+                    arguments: _selectedFriend!.userId);
+              },
+              onClose: _hideFriendInfo,
             ),
         ],
       ),
