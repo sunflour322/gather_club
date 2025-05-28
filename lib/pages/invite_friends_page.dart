@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:gather_club/user_service/friend.dart';
+import 'package:gather_club/user_service/friend_service.dart';
+import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/widgets/custom_notification.dart';
+import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
 
 class InviteFriendsPage extends StatefulWidget {
   const InviteFriendsPage({Key? key}) : super(key: key);
@@ -8,69 +14,18 @@ class InviteFriendsPage extends StatefulWidget {
 }
 
 class _InviteFriendsPageState extends State<InviteFriendsPage> {
+  late FriendService _friendService;
+  List<Friend> _friends = [];
+  Set<int> _selectedFriendIds = {};
+  bool _isLoading = true;
   final TextEditingController _searchController = TextEditingController();
-  final Set<String> _selectedFriends = {};
-  bool _isLoading = false;
   String _searchQuery = '';
 
-  // TODO: Заменить на реальные данные из API
-  final List<Map<String, dynamic>> _mockFriends = [
-    {
-      'id': '1',
-      'name': 'Анна Иванова',
-      'avatar': 'https://i.pravatar.cc/150?img=1',
-    },
-    {
-      'id': '2',
-      'name': 'Петр Сидоров',
-      'avatar': 'https://i.pravatar.cc/150?img=2',
-    },
-    {
-      'id': '3',
-      'name': 'Мария Петрова',
-      'avatar': 'https://i.pravatar.cc/150?img=3',
-    },
-  ];
-
-  List<Map<String, dynamic>> _getFilteredFriends(String query) {
-    if (query.isEmpty) return _mockFriends;
-    return _mockFriends
-        .where((friend) => friend['name']
-            .toString()
-            .toLowerCase()
-            .contains(query.toLowerCase()))
-        .toList();
-  }
-
-  Future<void> _inviteFriends() async {
-    if (_selectedFriends.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Выберите хотя бы одного друга'),
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      // TODO: Реализовать отправку приглашений через API
-      await Future.delayed(const Duration(seconds: 1)); // Имитация запроса
-      if (mounted) {
-        Navigator.pop(context, _selectedFriends.toList());
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+  @override
+  void initState() {
+    super.initState();
+    _friendService = FriendService(http.Client());
+    _loadFriends();
   }
 
   @override
@@ -79,34 +34,134 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
     super.dispose();
   }
 
+  Future<void> _loadFriends() async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = await authProvider.getToken();
+      if (token == null) {
+        throw Exception('Не удалось получить токен авторизации');
+      }
+      final friends = await _friendService.getAllFriends(token);
+      if (mounted) {
+        setState(() {
+          _friends = friends;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        CustomNotification.show(
+          context,
+          'Ошибка при загрузке списка друзей: $e',
+        );
+      }
+    }
+  }
+
+  void _toggleFriendSelection(int friendId) {
+    setState(() {
+      if (_selectedFriendIds.contains(friendId)) {
+        _selectedFriendIds.remove(friendId);
+      } else {
+        _selectedFriendIds.add(friendId);
+      }
+    });
+  }
+
+  void _confirmSelection() {
+    final selectedFriends = _friends
+        .where((friend) => _selectedFriendIds.contains(friend.userId))
+        .toList();
+    Navigator.pop(context, selectedFriends);
+  }
+
+  List<Friend> get _filteredFriends {
+    if (_searchQuery.isEmpty) return _friends;
+    return _friends.where((friend) {
+      return friend.username.toLowerCase().contains(_searchQuery.toLowerCase());
+    }).toList();
+  }
+
+  Widget _buildFriendItem(Friend friend) {
+    final isSelected = _selectedFriendIds.contains(friend.userId);
+    return GestureDetector(
+      onTap: () => _toggleFriendSelection(friend.userId),
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected
+                        ? Theme.of(context).primaryColor
+                        : Colors.grey[300]!,
+                    width: 2,
+                  ),
+                ),
+                child: ClipOval(
+                  child: friend.avatarUrl != null
+                      ? Image.network(
+                          friend.avatarUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Image.asset(
+                              'assets/default_avatar.png',
+                              fit: BoxFit.cover,
+                            );
+                          },
+                        )
+                      : Image.asset(
+                          'assets/default_avatar.png',
+                          fit: BoxFit.cover,
+                        ),
+                ),
+              ),
+              if (isSelected)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).primaryColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.check,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            friend.username,
+            style: const TextStyle(fontSize: 14),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Пригласить друзей'),
-        actions: [
-          TextButton(
-            onPressed: _isLoading ? null : _inviteFriends,
-            child: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Text(
-                    'Готово',
-                    style: TextStyle(color: Colors.white),
-                  ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
@@ -115,51 +170,48 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
+                filled: true,
+                fillColor: Colors.white,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
-                  vertical: 12,
+                  vertical: 8,
                 ),
               ),
               onChanged: (value) => setState(() => _searchQuery = value),
             ),
           ),
-          Expanded(
-            child: StatefulBuilder(
-              builder: (context, setState) {
-                final filteredFriends = _getFilteredFriends(_searchQuery);
-
-                return ListView.builder(
-                  itemCount: filteredFriends.length,
-                  itemBuilder: (context, index) {
-                    final friend = filteredFriends[index];
-                    final isSelected = _selectedFriends.contains(friend['id']);
-
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage: NetworkImage(friend['avatar']),
-                      ),
-                      title: Text(friend['name']),
-                      trailing: Icon(
-                        isSelected ? Icons.check_circle : Icons.circle_outlined,
-                        color: isSelected ? Colors.green : Colors.grey,
-                      ),
-                      onTap: () {
-                        setState(() {
-                          if (isSelected) {
-                            _selectedFriends.remove(friend['id']);
-                          } else {
-                            _selectedFriends.add(friend['id']);
-                          }
-                        });
-                      },
-                    );
-                  },
-                );
-              },
+        ),
+        actions: [
+          TextButton(
+            onPressed: _selectedFriendIds.isEmpty ? null : _confirmSelection,
+            child: Text(
+              'Готово (${_selectedFriendIds.length})',
+              style: TextStyle(
+                color: _selectedFriendIds.isEmpty ? Colors.grey : Colors.white,
+              ),
             ),
           ),
         ],
       ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _friends.isEmpty
+              ? const Center(
+                  child: Text('У вас пока нет друзей'),
+                )
+              : GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 16,
+                    childAspectRatio: 0.8,
+                  ),
+                  itemCount: _filteredFriends.length,
+                  itemBuilder: (context, index) {
+                    return _buildFriendItem(_filteredFriends[index]);
+                  },
+                ),
     );
   }
 }

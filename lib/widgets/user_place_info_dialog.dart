@@ -95,49 +95,87 @@ class UserPlaceInfoDialog extends StatelessWidget {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () => onRouteBuilt(place),
-                        icon: const Icon(Icons.directions_walk, size: 20),
-                        label: const Text('Маршрут'),
+                        icon: const Icon(Icons.directions_walk, size: 24),
+                        label: const Text(
+                          'Маршрут',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                        ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          backgroundColor: Colors.green.withOpacity(0.1),
+                          foregroundColor: Colors.green,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                              color: Colors.green.withOpacity(0.5),
+                              width: 1,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text('Удалить метку?'),
-                            content:
-                                const Text('Это действие нельзя отменить.'),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('Отмена'),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.red.withOpacity(0.5),
+                          width: 1,
+                        ),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Удалить метку?'),
+                                content:
+                                    const Text('Это действие нельзя отменить.'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: Text(
+                                      'Отмена',
+                                      style: TextStyle(
+                                        color: Colors.grey[700],
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      Navigator.pop(context);
+                                      onDelete();
+                                    },
+                                    child: const Text(
+                                      'Удалить',
+                                      style: TextStyle(
+                                        color: Colors.red,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.pop(context); // Закрываем диалог
-                                  Navigator.pop(context); // Закрываем инфо
-                                  onDelete();
-                                },
-                                child: const Text(
-                                  'Удалить',
-                                  style: TextStyle(color: Colors.red),
-                                ),
-                              ),
-                            ],
+                            );
+                          },
+                          child: const Icon(
+                            Icons.delete,
+                            color: Colors.red,
+                            size: 24,
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.delete),
-                      color: Colors.red,
+                        ),
+                      ),
                     ),
                   ],
                 ),

@@ -123,18 +123,19 @@ class FriendInfoDialog extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 44,
-          height: 44,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(22),
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.5), width: 1),
           ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(12),
               onTap: onPressed,
-              child: Icon(icon, color: Colors.white, size: 22),
+              child: Icon(icon, color: color, size: 24),
             ),
           ),
         ),
@@ -143,6 +144,7 @@ class FriendInfoDialog extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
+            fontWeight: FontWeight.w500,
             color: Colors.grey[800],
           ),
         ),

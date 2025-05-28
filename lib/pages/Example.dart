@@ -8,21 +8,22 @@ import 'package:gather_club/auth_service/auth_service.dart';
 import 'package:gather_club/map_service/location.dart';
 import 'package:gather_club/place_serice/place.dart';
 import 'package:gather_club/place_serice/place_image_service.dart';
-import 'package:gather_club/place_serice/place_info_dialog.dart';
+import 'package:gather_club/widgets/place_info_dialog.dart';
 import 'package:gather_club/place_serice/place_repository.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'services/user_custom_place_service.dart';
-import 'place_serice/user_custom_place.dart';
-import 'widgets/user_place_info_dialog.dart';
+import '../services/user_custom_place_service.dart';
+import '../place_serice/user_custom_place.dart';
+import '../widgets/user_place_info_dialog.dart';
 import 'package:gather_club/services/user_location_service.dart';
 import 'package:gather_club/widgets/friend_info_dialog.dart';
-import 'widgets/friend_info_overlay.dart';
+import '../widgets/friend_info_overlay.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:gather_club/widgets/custom_notification.dart';
 
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
@@ -465,13 +466,9 @@ class _ExamplePageState extends State<ExamplePage>
             final userId = await authProvider.getUserId();
             await _userPlaceService.deletePlace(userId, place.placeId);
             await _fetchUserPlaces();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Метка удалена')),
-            );
+            CustomNotification.show(context, 'Метка удалена');
           } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Ошибка при удалении метки: $e')),
-            );
+            CustomNotification.show(context, 'Ошибка при удалении метки: $e');
           }
         },
       ),
@@ -552,11 +549,8 @@ class _ExamplePageState extends State<ExamplePage>
         throw Exception('Не удалось построить пешеходный маршрут');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                'Ошибка построения пешеходного маршрута: ${e.toString()}')),
-      );
+      CustomNotification.show(
+          context, 'Ошибка построения пешеходного маршрута: ${e.toString()}');
     } finally {
       setState(() => _isRouteCalculating = false);
     }
@@ -883,15 +877,11 @@ class _ExamplePageState extends State<ExamplePage>
                           await _userPlaceService.createPlace(userId, place);
                           await _fetchUserPlaces();
                           Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Место сохранено')),
-                          );
+                          CustomNotification.show(context, 'Место сохранено');
                         } catch (e) {
                           print('Error creating place: $e');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                                content: Text('Ошибка при сохранении: $e')),
-                          );
+                          CustomNotification.show(
+                              context, 'Ошибка при сохранении: $e');
                         }
                       },
                       icon: const Icon(Icons.save, size: 20),
@@ -1186,9 +1176,7 @@ class _ExamplePageState extends State<ExamplePage>
                   }
                 } catch (e) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Ошибка при выходе: $e')),
-                    );
+                    CustomNotification.show(context, 'Ошибка при выходе: $e');
                   }
                 }
               },
@@ -1320,14 +1308,11 @@ class _ExamplePageState extends State<ExamplePage>
             heroTag: 'location',
             child: const Icon(Icons.info_outline),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    _hasLocationPermission
-                        ? 'Разрешение на геолокацию получено'
-                        : 'Нет разрешения на геолокацию',
-                  ),
-                ),
+              CustomNotification.show(
+                context,
+                _hasLocationPermission
+                    ? 'Разрешение на геолокацию получено'
+                    : 'Нет разрешения на геолокацию',
               );
             },
           ),
@@ -1336,10 +1321,9 @@ class _ExamplePageState extends State<ExamplePage>
             heroTag: 'places',
             child: const Icon(Icons.place),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Найдено ${_places.length} мест'),
-                ),
+              CustomNotification.show(
+                context,
+                'Найдено ${_places.length} мест',
               );
             },
           ),

@@ -4,6 +4,7 @@ import 'package:gather_club/user_service/friend_service.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:gather_club/widgets/custom_notification.dart';
 
 class FriendSearchPage extends StatefulWidget {
   const FriendSearchPage({Key? key}) : super(key: key);
@@ -152,19 +153,18 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
         // Обновляем результаты поиска
         _filterUsers(_searchController.text);
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Запрос в друзья отправлен')),
+        CustomNotification.show(
+          context,
+          'Запрос в друзья отправлен',
         );
       }
     } catch (e) {
       print('Error sending friend request: $e');
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ошибка: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
+        CustomNotification.show(
+          context,
+          'Ошибка при отправке запроса: ${e.toString()}',
         );
       }
     }

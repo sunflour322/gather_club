@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:gather_club/Example.dart';
+import 'package:gather_club/pages/Example.dart';
 import 'package:gather_club/pages/account_page.dart';
 import 'package:gather_club/pages/chat_page.dart';
 import 'package:gather_club/user_service/user_repo.dart';

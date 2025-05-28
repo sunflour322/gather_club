@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'chat_detail_page.dart';
 
 class Chat {
   final String id;
@@ -211,14 +210,7 @@ class _ChatPageState extends State<ChatPage> {
                     ),
                   ],
                 ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ChatDetailPage(chat: chat),
-                    ),
-                  );
-                },
+                onTap: () {},
               ),
             ),
           );

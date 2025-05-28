@@ -8,6 +8,9 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:developer' as developer;
+import 'package:gather_club/widgets/custom_notification.dart';
+import 'package:gather_club/pages/create_meetup_page.dart';
 
 class PlaceInfoDialog extends StatelessWidget {
   final Place place;
@@ -155,7 +158,7 @@ class _PlaceContentState extends State<_PlaceContent>
   bool _hasLiked = false;
   bool _hasDisliked = false;
   final ImagePicker _picker = ImagePicker();
-  late int _userId;
+  int? _userId;
 
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -170,8 +173,6 @@ class _PlaceContentState extends State<_PlaceContent>
     _initializeUserId();
     if (_images.isEmpty) {
       _loadImages();
-    } else {
-      _initializeRatingStates();
     }
 
     _animationController = AnimationController(
@@ -195,20 +196,36 @@ class _PlaceContentState extends State<_PlaceContent>
   }
 
   Future<void> _initializeUserId() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    _userId = await authProvider.getUserId();
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      _userId = await authProvider.getUserId();
+      developer.log('Initialized userId: $_userId');
+      if (_images.isNotEmpty) {
+        _initializeRatingStates();
+      }
+    } catch (e, stackTrace) {
+      developer.log(
+        'Error initializing userId',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   void _initializeRatingStates() async {
-    if (_images.isEmpty) return;
+    if (_images.isEmpty || _userId == null) {
+      developer.log(
+          'Cannot initialize rating states: images empty or userId not set');
+      return;
+    }
 
     for (var image in _images) {
       try {
-        if (!_ratingStateService.hasRating(_userId, image.imageId)) {
+        if (!_ratingStateService.hasRating(_userId!, image.imageId)) {
           final ratings =
-              await _imageService.getRatingState(image.imageId, _userId);
+              await _imageService.getRatingState(image.imageId, _userId!);
 
-          _ratingStateService.setRatingState(_userId, image.imageId, {
+          _ratingStateService.setRatingState(_userId!, image.imageId, {
             'likes': image.likes,
             'dislikes': image.dislikes,
             'liked': ratings['liked'] ?? false,
@@ -217,7 +234,7 @@ class _PlaceContentState extends State<_PlaceContent>
         }
 
         final state =
-            _ratingStateService.getRatingState(_userId, image.imageId);
+            _ratingStateService.getRatingState(_userId!, image.imageId);
         if (state != null && mounted) {
           setState(() {
             image.likes = state['likes'];
@@ -229,8 +246,12 @@ class _PlaceContentState extends State<_PlaceContent>
             }
           });
         }
-      } catch (e) {
-        print('Error initializing rating state for image ${image.imageId}: $e');
+      } catch (e, stackTrace) {
+        developer.log(
+          'Error initializing rating state for image ${image.imageId}',
+          error: e,
+          stackTrace: stackTrace,
+        );
       }
     }
   }
@@ -239,7 +260,7 @@ class _PlaceContentState extends State<_PlaceContent>
     if (_currentImageIndex >= _images.length) return;
 
     final currentImageId = _images[_currentImageIndex].imageId;
-    final state = _ratingStateService.getRatingState(_userId, currentImageId);
+    final state = _ratingStateService.getRatingState(_userId!, currentImageId);
 
     if (state != null && mounted) {
       setState(() {
@@ -280,8 +301,9 @@ class _PlaceContentState extends State<_PlaceContent>
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingImages = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка загрузки изображений: $e')),
+        CustomNotification.show(
+          context,
+          'Ошибка при загрузке изображений: $e',
         );
       }
     }
@@ -301,14 +323,14 @@ class _PlaceContentState extends State<_PlaceContent>
         imageUrl,
       );
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Изображение загружено и ожидает проверки'),
-        ),
+      CustomNotification.show(
+        context,
+        'Изображение загружено и ожидает проверки',
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка загрузки изображения: $e')),
+      CustomNotification.show(
+        context,
+        'Ошибка при загрузке изображения: $e',
       );
     }
   }
@@ -351,8 +373,9 @@ class _PlaceContentState extends State<_PlaceContent>
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingRoute = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка построения маршрута: $e')),
+        CustomNotification.show(
+          context,
+          'Ошибка построения маршрута: $e',
         );
       }
     }
@@ -382,6 +405,22 @@ class _PlaceContentState extends State<_PlaceContent>
             ),
           );
         }),
+      ),
+    );
+  }
+
+  Future<void> _navigateToCreateMeetup(BuildContext context) async {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CreateMeetupPage(
+          selectedPlace: {
+            'id': widget.place.placeId,
+            'name': widget.place.name,
+            'address': widget.place.address,
+            'imageUrl': _images.isNotEmpty ? _images[0].imageUrl : null,
+          },
+        ),
       ),
     );
   }
@@ -565,8 +604,112 @@ class _PlaceContentState extends State<_PlaceContent>
     );
   }
 
+  Widget _buildActionButtons() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildActionButton(
+          icon: Icons.directions,
+          label: 'Маршрут',
+          color: Colors.green,
+          onPressed: (_routeBuilt || _isLoadingRoute) ? null : _buildRoute,
+          isLoading: _isLoadingRoute,
+        ),
+        _buildActionButton(
+          icon: Icons.add_a_photo,
+          label: 'Фото',
+          color: Colors.blue,
+          onPressed: _uploadImage,
+        ),
+        _buildActionButton(
+          icon: Icons.monetization_on,
+          label: 'Монеты',
+          color: Colors.amber,
+          onPressed: () {
+            // TODO: Реализовать получение монет
+          },
+        ),
+        _buildActionButton(
+          icon: Icons.group_add,
+          label: 'Встреча',
+          color: Colors.purple,
+          onPressed: () => _navigateToCreateMeetup(context),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+    bool isLoading = false,
+  }) {
+    final buttonColor = onPressed == null ? Colors.grey : color;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: buttonColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: buttonColor.withOpacity(0.3), width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: buttonColor.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onPressed,
+              child: Center(
+                child: isLoading
+                    ? SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(buttonColor),
+                        ),
+                      )
+                    : Icon(
+                        icon,
+                        color: buttonColor,
+                        size: 28,
+                      ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: buttonColor.withOpacity(0.8),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _rateImage(bool isLike) async {
-    if (_isRating || _images.isEmpty) return;
+    if (_isRating || _images.isEmpty || _userId == null) {
+      developer.log('Cannot rate image: loading, no images, or no userId');
+      return;
+    }
 
     setState(() => _isRating = true);
 
@@ -574,17 +717,15 @@ class _PlaceContentState extends State<_PlaceContent>
       final currentImage = _images[_currentImageIndex];
       final currentImageId = currentImage.imageId;
       final currentState =
-          _ratingStateService.getRatingState(_userId, currentImageId);
+          _ratingStateService.getRatingState(_userId!, currentImageId);
 
       // Если уже стоит такая же оценка - выходим
-      if ((isLike && _ratingStateService.hasLiked(_userId, currentImageId)) ||
+      if ((isLike && _ratingStateService.hasLiked(_userId!, currentImageId)) ||
           (!isLike &&
-              _ratingStateService.hasDisliked(_userId, currentImageId))) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(isLike
-                  ? 'Вы уже поставили лайк'
-                  : 'Вы уже поставили дизлайк')),
+              _ratingStateService.hasDisliked(_userId!, currentImageId))) {
+        CustomNotification.show(
+          context,
+          isLike ? 'Вы уже поставили лайк' : 'Вы уже поставили дизлайк',
         );
         return;
       }
@@ -596,7 +737,7 @@ class _PlaceContentState extends State<_PlaceContent>
       // Обновляем состояние и UI
       if (isLike) {
         // Если был дизлайк - убираем его
-        if (_ratingStateService.hasDisliked(_userId, currentImageId)) {
+        if (_ratingStateService.hasDisliked(_userId!, currentImageId)) {
           await _imageService.removeDislike(currentImageId);
           currentDislikes = math.max<int>(0, currentDislikes - 1);
         }
@@ -604,7 +745,7 @@ class _PlaceContentState extends State<_PlaceContent>
         await _imageService.addLike(currentImageId);
         currentLikes += 1;
 
-        _ratingStateService.setRatingState(_userId, currentImageId, {
+        _ratingStateService.setRatingState(_userId!, currentImageId, {
           'likes': currentLikes,
           'dislikes': currentDislikes,
           'liked': true,
@@ -612,7 +753,7 @@ class _PlaceContentState extends State<_PlaceContent>
         });
       } else {
         // Если был лайк - убираем его
-        if (_ratingStateService.hasLiked(_userId, currentImageId)) {
+        if (_ratingStateService.hasLiked(_userId!, currentImageId)) {
           await _imageService.removeLike(currentImageId);
           currentLikes = math.max<int>(0, currentLikes - 1);
         }
@@ -620,7 +761,7 @@ class _PlaceContentState extends State<_PlaceContent>
         await _imageService.addDislike(currentImageId);
         currentDislikes += 1;
 
-        _ratingStateService.setRatingState(_userId, currentImageId, {
+        _ratingStateService.setRatingState(_userId!, currentImageId, {
           'likes': currentLikes,
           'dislikes': currentDislikes,
           'liked': false,
@@ -641,8 +782,9 @@ class _PlaceContentState extends State<_PlaceContent>
       _animationController.forward();
     } catch (e) {
       print('Error during rating operation: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось выполнить действие: $e')),
+      CustomNotification.show(
+        context,
+        'Не удалось выполнить действие: $e',
       );
     } finally {
       if (mounted) {
@@ -796,71 +938,6 @@ class _PlaceContentState extends State<_PlaceContent>
         ),
         const SizedBox(height: 16),
       ],
-    );
-  }
-
-  Widget _buildActionButtons() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildActionButton(
-          icon: Icons.directions,
-          onPressed: (_routeBuilt || _isLoadingRoute) ? null : _buildRoute,
-          isLoading: _isLoadingRoute,
-        ),
-        _buildActionButton(
-          icon: Icons.add_a_photo,
-          onPressed: _uploadImage,
-        ),
-        _buildActionButton(
-          icon: Icons.monetization_on,
-          onPressed: () {
-            // TODO: Реализовать получение монет
-          },
-        ),
-        _buildActionButton(
-          icon: Icons.group_add,
-          onPressed: () {
-            Navigator.of(context).pushNamed('/chat');
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionButton({
-    required IconData icon,
-    required VoidCallback? onPressed,
-    bool isLoading = false,
-  }) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: onPressed == null
-            ? Colors.grey[300]
-            : Theme.of(context).colorScheme.primary,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(22),
-          onTap: onPressed,
-          child: Center(
-            child: isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : Icon(icon, color: Colors.white, size: 22),
-          ),
-        ),
-      ),
     );
   }
 }

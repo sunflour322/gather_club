@@ -4,6 +4,7 @@ import 'package:gather_club/user_service/friend_service.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:gather_club/widgets/custom_notification.dart';
 
 class FriendsBottomSheet extends StatefulWidget {
   final List<Friend> friends;
@@ -63,8 +64,9 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: ${e.toString()}')),
+        CustomNotification.show(
+          context,
+          'Ошибка: ${e.toString()}',
         );
       }
     }
@@ -99,8 +101,9 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds[friend.friendshipId!] = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+        CustomNotification.show(
+          context,
+          e.toString(),
         );
       }
     }
@@ -123,8 +126,9 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds[friend.friendshipId!] = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+        CustomNotification.show(
+          context,
+          e.toString(),
         );
       }
     }
@@ -147,8 +151,9 @@ class _FriendsBottomSheetState extends State<FriendsBottomSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds[friend.friendshipId!] = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+        CustomNotification.show(
+          context,
+          e.toString(),
         );
       }
     }

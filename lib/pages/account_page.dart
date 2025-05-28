@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:gather_club/place_serice/place.dart';
 import 'package:gather_club/user_service/user.dart';
 import 'package:gather_club/user_service/friend.dart';
-import 'package:gather_club/user_service/friends_bottom_sheet.dart';
+import 'package:gather_club/widgets/friends_bottom_sheet.dart';
 import 'package:gather_club/user_service/friend_service.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/services/user_custom_place_service.dart';
 import 'package:gather_club/place_serice/user_custom_place.dart';
-import 'package:gather_club/Example.dart';
+import 'package:gather_club/pages/Example.dart';
 import 'package:gather_club/navigation/navigation_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:gather_club/widgets/custom_notification.dart';
 
 class AccountPage extends StatefulWidget {
   const AccountPage({super.key});
@@ -85,13 +86,11 @@ class _AccountPageState extends State<AccountPage> {
     } catch (e) {
       print('Error loading user data: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ошибка: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
         setState(() => _isLoading = false);
+        CustomNotification.show(
+          context,
+          'Ошибка загрузки данных: ${e.toString()}',
+        );
       }
     }
   }
@@ -113,8 +112,10 @@ class _AccountPageState extends State<AccountPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+        setState(() => _isLoading = false);
+        CustomNotification.show(
+          context,
+          'Ошибка загрузки статистики: ${e.toString()}',
         );
       }
     }
@@ -135,8 +136,10 @@ class _AccountPageState extends State<AccountPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+        setState(() => _isLoading = false);
+        CustomNotification.show(
+          context,
+          'Ошибка загрузки статистики: ${e.toString()}',
         );
       }
     }
@@ -155,14 +158,17 @@ class _AccountPageState extends State<AccountPage> {
           _acceptedFriends.removeWhere((f) => f.friendshipId == friendshipId);
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Друг успешно удален')),
+        CustomNotification.show(
+          context,
+          'Друг успешно удален',
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: ${e.toString()}')),
+        setState(() => _isLoading = false);
+        CustomNotification.show(
+          context,
+          'Ошибка при удалении друга: ${e.toString()}',
         );
       }
     }
@@ -640,8 +646,10 @@ class _AccountPageState extends State<AccountPage> {
                           }
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Ошибка при выходе: $e')),
+                            setState(() => _isLoading = false);
+                            CustomNotification.show(
+                              context,
+                              'Ошибка при выходе: $e',
                             );
                           }
                         }
