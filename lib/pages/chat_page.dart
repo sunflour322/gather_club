@@ -103,42 +103,68 @@ class _ChatPageState extends State<ChatPage>
 
     for (var chat in _chats) {
       print('Чат: ${chat.name}');
+      print('- ID чата: ${chat.chatId}');
+      print('- ID встречи: ${chat.meetupId}');
       print('- Тип: ${chat.type}');
       print('- Статус встречи: ${chat.meetupStatus}');
       print('- Статус пользователя: ${chat.currentUserStatus}');
       print('- isActive: ${chat.isActive}');
     }
 
-    final meetupChats =
-        _chats.where((chat) => chat.type == ChatType.meetup).toList();
+    // Фильтруем только чаты типа meetup
+    final meetupChats = _chats
+        .where((chat) => chat.type == ChatType.meetup && chat.meetupId != null)
+        .toList();
     print('Чаты типа meetup: ${meetupChats.length}');
 
+    // Фильтруем запланированные встречи
     final plannedMeetups = meetupChats
         .where((chat) => chat.meetupStatus == MeetupStatus.planned)
         .toList();
     print('Запланированные встречи: ${plannedMeetups.length}');
 
+    // Фильтруем принятые встречи
     final acceptedMeetups = plannedMeetups
         .where((chat) => chat.currentUserStatus == ParticipantStatus.accepted)
         .toList();
     print('Принятые встречи: ${acceptedMeetups.length}');
 
+    // Сортируем по времени встречи
+    acceptedMeetups.sort((a, b) => (a.scheduledTime ?? DateTime.now())
+        .compareTo(b.scheduledTime ?? DateTime.now()));
+
     for (var chat in acceptedMeetups) {
       print('Активная встреча:');
-      print('- ID: ${chat.chatId}');
+      print('- ID чата: ${chat.chatId}');
+      print('- ID встречи: ${chat.meetupId}');
       print('- Название: ${chat.name}');
       print('- Статус: ${chat.meetupStatus}');
       print('- Статус пользователя: ${chat.currentUserStatus}');
+      print('- Время: ${chat.scheduledTime}');
     }
 
     return acceptedMeetups;
   }
 
   void _onChatTap(Chat chat) {
+    print('Открываем чат:');
+    print('- ID: ${chat.chatId}');
+    print('- Тип: ${chat.type}');
+    print('- MeetupId: ${chat.meetupId}');
+
+    // Для встреч используем meetupId вместо chatId
+    final chatId = chat.type == ChatType.meetup ? 16 : chat.chatId;
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ChatDetailPage(chat: chat),
+        builder: (context) => ChatDetailPage(
+          chat: chat.copyWith(
+              chatId: chatId,
+              type: chat.type,
+              meetupId: chat.meetupId,
+              isGroup: chat.type == ChatType.group),
+        ),
       ),
     ).then((_) => _loadData());
   }

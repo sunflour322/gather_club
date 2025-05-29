@@ -22,7 +22,17 @@ class ChatService {
   final Map<String, StompUnsubscribeFn> _subscriptions = {};
   final _chatUpdateController = StreamController<Chat>.broadcast();
 
+  // Добавляем контроллер для сообщений чата
+  final Map<int, StreamController<List<ChatMessage>>> _messageControllers = {};
+
   ChatService(this._authProvider);
+
+  // Получаем стрим сообщений для конкретного чата
+  Stream<List<ChatMessage>> getChatMessagesStream(int chatId) {
+    _messageControllers[chatId] ??=
+        StreamController<List<ChatMessage>>.broadcast();
+    return _messageControllers[chatId]!.stream;
+  }
 
   // REST API методы
 
@@ -144,23 +154,38 @@ class ChatService {
     print('Загрузка сообщений для чата $chatId');
     print('Используемый токен: $token');
 
-    final response = await http.get(
-      Uri.parse('$baseUrl/chats/$chatId/messages?limit=$limit&offset=$offset'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
+    try {
+      final response = await http.get(
+        Uri.parse(
+            '$baseUrl/chats/$chatId/messages?page=${offset ~/ limit}&size=$limit'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+      print(chatId);
+      print('Ответ сервера: ${response.statusCode}');
+      print('Тело ответа: ${response.body}');
+      print('Заголовки ответа: ${response.headers}');
 
-    print('Ответ сервера: ${response.statusCode}');
-    print('Тело ответа: ${response.body}');
-
-    if (response.statusCode == 200) {
-      final List<dynamic> messagesJson = jsonDecode(response.body);
-      return messagesJson.map((json) => ChatMessage.fromJson(json)).toList();
-    } else {
-      throw Exception(
-          'Ошибка загрузки сообщений: ${response.statusCode} - ${response.body}');
+      if (response.statusCode == 200) {
+        final List<dynamic> messagesJson = jsonDecode(response.body);
+        return messagesJson.map((json) => ChatMessage.fromJson(json)).toList();
+      } else if (response.statusCode == 403) {
+        print(
+            'Ошибка доступа: возможно, у пользователя нет прав на просмотр сообщений этого чата');
+        throw Exception('У вас нет доступа к сообщениям этого чата');
+      } else {
+        print('Неожиданная ошибка при загрузке сообщений');
+        throw Exception(
+            'Ошибка загрузки сообщений: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e, stackTrace) {
+      print('Исключение при загрузке сообщений:');
+      print(e);
+      print('Stack trace:');
+      print(stackTrace);
+      rethrow;
     }
   }
 
@@ -547,6 +572,7 @@ class ChatService {
 
         print('Преобразование встречи в чат:');
         print('- ID встречи: ${meetup['meetupId']}');
+        print('- ID чата: ${meetup['chatId'] ?? meetup['meetupId']}');
         print('- Название: ${meetup['name']}');
         print('- Статус встречи: ${meetup['status']}');
 
@@ -565,7 +591,8 @@ class ChatService {
         print('- Статус текущего пользователя: $currentUserStatus');
 
         final chatJson = {
-          'chatId': meetup['meetupId'],
+          // Если chatId не указан, используем meetupId как chatId
+          'chatId': meetup['chatId'] ?? meetup['meetupId'],
           'name': meetup['name'],
           'type': 'meetup',
           'createdById': creator['userId'],
@@ -624,8 +651,14 @@ class ChatService {
         url: wsUrl,
         onConnect: _onConnect,
         onDisconnect: _onDisconnect,
-        onWebSocketError: (error) => print('WebSocket error: $error'),
-        onStompError: (error) => print('STOMP error: ${error.body}'),
+        onWebSocketError: (error) {
+          print('WebSocket error: $error');
+          _reconnectWebSocket();
+        },
+        onStompError: (error) {
+          print('STOMP error: ${error.body}');
+          _reconnectWebSocket();
+        },
         stompConnectHeaders: {
           'Authorization': 'Bearer $token',
         },
@@ -639,9 +672,24 @@ class ChatService {
     try {
       _stompClient!.activate();
       print('WebSocket connection activated');
-    } catch (e) {
-      print('Error activating WebSocket connection: $e');
+    } catch (e, stackTrace) {
+      print('Error activating WebSocket connection:');
+      print(e);
+      print(stackTrace);
+      _reconnectWebSocket();
       rethrow;
+    }
+  }
+
+  void _reconnectWebSocket() async {
+    print('Attempting to reconnect WebSocket...');
+    await Future.delayed(const Duration(seconds: 5));
+    if (!(_stompClient?.connected ?? false)) {
+      try {
+        await connectToWebSocket();
+      } catch (e) {
+        print('Reconnection failed: $e');
+      }
     }
   }
 
@@ -660,8 +708,10 @@ class ChatService {
             final chatJson = jsonDecode(frame.body!);
             final chat = Chat.fromJson(chatJson);
             _chatUpdateController.add(chat);
-          } catch (e) {
-            print('Ошибка обработки обновления чата: $e');
+          } catch (e, stackTrace) {
+            print('Ошибка обработки обновления чата:');
+            print(e);
+            print(stackTrace);
           }
         }
       },
@@ -685,70 +735,106 @@ class ChatService {
     TypingCallback? onTyping,
     ReadCallback? onRead,
   }) async {
-    if (!(_stompClient?.connected ?? false)) return;
+    if (!(_stompClient?.connected ?? false)) {
+      print('WebSocket не подключен. Попытка подключения...');
+      await connectToWebSocket();
+    }
 
     final token = await _authProvider.getToken();
-    if (token == null) return;
+    if (token == null) {
+      print('Ошибка: токен не найден');
+      return;
+    }
 
     final headers = <String, String>{
       'Authorization': 'Bearer $token',
-      'Content-Type': 'application/json',
     };
 
-    // Подписка на сообщения
-    final messageKey = 'chat.$chatId';
-    _subscriptions[messageKey] = _stompClient!.subscribe(
-      destination: '/topic/chat.$chatId',
-      headers: headers,
-      callback: (frame) {
-        if (onMessage != null && frame.body != null) {
-          try {
-            final message = ChatMessage.fromJson(jsonDecode(frame.body!));
-            onMessage(message);
-          } catch (e) {
-            print('Ошибка обработки сообщения: $e');
-          }
-        }
-      },
-    );
+    try {
+      print('Подписка на сообщения чата $chatId');
 
-    // Подписка на уведомления о наборе текста
-    final typingKey = 'chat.$chatId.typing';
-    _subscriptions[typingKey] = _stompClient!.subscribe(
-      destination: '/topic/chat.$chatId.typing',
-      headers: headers,
-      callback: (frame) {
-        if (onTyping != null && frame.body != null) {
-          try {
-            final data = jsonDecode(frame.body!);
-            if (data['userId'] is int) {
-              onTyping(data['userId']);
-            }
-          } catch (e) {
-            print('Ошибка обработки уведомления о наборе: $e');
-          }
-        }
-      },
-    );
+      // Инициализируем контроллер для чата, если его еще нет
+      _messageControllers[chatId] ??=
+          StreamController<List<ChatMessage>>.broadcast();
 
-    // Подписка на уведомления о прочтении
-    final readKey = 'chat.$chatId.read';
-    _subscriptions[readKey] = _stompClient!.subscribe(
-      destination: '/topic/chat.$chatId.read',
-      headers: headers,
-      callback: (frame) {
-        if (onRead != null && frame.body != null) {
-          try {
-            final data = jsonDecode(frame.body!);
-            if (data['userId'] is int) {
-              onRead(data['userId']);
+      // Загружаем начальные сообщения
+      final initialMessages = await getChatMessages(chatId);
+      _messageControllers[chatId]?.add(initialMessages);
+
+      // Подписка на сообщения
+      final messageKey = 'chat.$chatId';
+      _subscriptions[messageKey] = _stompClient!.subscribe(
+        destination: '/topic/chat.$chatId',
+        headers: headers,
+        callback: (frame) {
+          print('Получено новое сообщение: ${frame.body}');
+          if (frame.body != null) {
+            try {
+              final message = ChatMessage.fromJson(jsonDecode(frame.body!));
+              print('Сообщение преобразовано: ${message.content}');
+
+              // Получаем текущие сообщения
+              getChatMessages(chatId).then((messages) {
+                // Отправляем обновленный список в стрим
+                _messageControllers[chatId]?.add(messages);
+              });
+
+              // Вызываем колбэк, если он предоставлен
+              if (onMessage != null) {
+                onMessage(message);
+              }
+            } catch (e, stackTrace) {
+              print('Ошибка обработки сообщения:');
+              print(e);
+              print(stackTrace);
             }
-          } catch (e) {
-            print('Ошибка обработки уведомления о прочтении: $e');
           }
-        }
-      },
-    );
+        },
+      );
+
+      // Подписка на уведомления о наборе текста
+      final typingKey = 'chat.$chatId.typing';
+      _subscriptions[typingKey] = _stompClient!.subscribe(
+        destination: '/topic/chat.$chatId.typing',
+        headers: headers,
+        callback: (frame) {
+          print('Получено уведомление о наборе текста');
+          if (onTyping != null && frame.body != null) {
+            try {
+              final userId = int.parse(frame.body!);
+              onTyping(userId);
+            } catch (e) {
+              print('Ошибка обработки уведомления о наборе: $e');
+            }
+          }
+        },
+      );
+
+      // Подписка на уведомления о прочтении
+      final readKey = 'chat.$chatId.read';
+      _subscriptions[readKey] = _stompClient!.subscribe(
+        destination: '/topic/chat.$chatId.read',
+        headers: headers,
+        callback: (frame) {
+          print('Получено уведомление о прочтении');
+          if (onRead != null && frame.body != null) {
+            try {
+              final userId = int.parse(frame.body!);
+              onRead(userId);
+            } catch (e) {
+              print('Ошибка обработки уведомления о прочтении: $e');
+            }
+          }
+        },
+      );
+
+      print('Успешно подписались на все события чата $chatId');
+    } catch (e, stackTrace) {
+      print('Ошибка при подписке на чат $chatId:');
+      print(e);
+      print(stackTrace);
+      rethrow;
+    }
   }
 
   void unsubscribeFromChat(int chatId) {
@@ -774,39 +860,36 @@ class ChatService {
     if (userId == null) throw Exception('Не авторизован');
 
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/chats/messages'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
+      print('Отправка сообщения в чат $chatId:');
+      print('- Текст: $message');
+      print('- От пользователя: $userId');
+      print('- В ответ на: $replyToId');
+
+      // Отправляем через WebSocket
+      if (_stompClient?.connected ?? false) {
+        final messageData = {
           'chatId': chatId,
           'senderId': userId,
           'content': message,
           'replyToId': replyToId,
-        }),
-      );
+        };
+        print('Отправляем данные: $messageData');
 
-      if (response.statusCode != 201 && response.statusCode != 200) {
-        throw Exception('Ошибка отправки сообщения: ${response.statusCode}');
-      }
-
-      // Отправляем через WebSocket, если подключен
-      if (_stompClient?.connected ?? false) {
         _stompClient!.send(
           destination: '/app/chat.send',
-          body: jsonEncode({
-            'chatId': chatId,
-            'content': message,
-            'replyToId': replyToId,
-          }),
+          body: jsonEncode(messageData),
           headers: {'Authorization': 'Bearer $token'},
         );
+
+        print('Сообщение успешно отправлено');
+      } else {
+        print('WebSocket не подключен');
+        throw Exception('WebSocket не подключен');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Ошибка при отправке сообщения:');
       print(e);
+      print(stackTrace);
       rethrow;
     }
   }
@@ -846,6 +929,11 @@ class ChatService {
   @override
   void dispose() {
     _chatUpdateController.close();
+    // Закрываем все контроллеры сообщений
+    for (var controller in _messageControllers.values) {
+      controller.close();
+    }
+    _messageControllers.clear();
     disconnectWebSocket();
   }
 

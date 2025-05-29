@@ -41,15 +41,84 @@ class Chat {
     this.currentUserStatus,
   });
 
+  Chat copyWith({
+    int? chatId,
+    String? name,
+    List<ChatParticipant>? participants,
+    String? lastMessageContent,
+    DateTime? lastMessageAt,
+    ChatType? type,
+    int? meetupId,
+    bool? isGroup,
+    int? createdById,
+    String? createdByName,
+    String? createdByAvatar,
+    DateTime? createdAt,
+    DateTime? scheduledTime,
+    MeetupStatus? meetupStatus,
+    ParticipantStatus? currentUserStatus,
+  }) {
+    return Chat(
+      chatId: chatId ?? this.chatId,
+      name: name ?? this.name,
+      participants: participants ?? this.participants,
+      lastMessageContent: lastMessageContent ?? this.lastMessageContent,
+      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      type: type ?? this.type,
+      meetupId: meetupId ?? this.meetupId,
+      isGroup: isGroup ?? this.isGroup,
+      createdById: createdById ?? this.createdById,
+      createdByName: createdByName ?? this.createdByName,
+      createdByAvatar: createdByAvatar ?? this.createdByAvatar,
+      createdAt: createdAt ?? this.createdAt,
+      scheduledTime: scheduledTime ?? this.scheduledTime,
+      meetupStatus: meetupStatus ?? this.meetupStatus,
+      currentUserStatus: currentUserStatus ?? this.currentUserStatus,
+    );
+  }
+
   factory Chat.fromJson(Map<String, dynamic> json) {
     print('Converting JSON to Chat:');
     print('- type: ${json['type']}');
     print('- meetupStatus: ${json['meetupStatus']}');
     print('- currentUserStatus: ${json['currentUserStatus']}');
 
+    // Определяем тип чата
+    ChatType? chatType;
+
+    // Если явно указан тип
+    if (json['type'] != null) {
+      switch (json['type'].toString().toLowerCase()) {
+        case 'meetup':
+          chatType = ChatType.meetup;
+          break;
+        case 'direct':
+          chatType = ChatType.direct;
+          break;
+        case 'group':
+          chatType = ChatType.group;
+          break;
+      }
+    }
+
+    // Если тип не определён, но есть meetupId
+    if (chatType == null && json['meetupId'] != null) {
+      chatType = ChatType.meetup;
+    }
+
+    // Если тип всё ещё не определён
+    if (chatType == null) {
+      chatType = json['isGroup'] == true ? ChatType.group : ChatType.direct;
+    }
+
+    // Проверяем обязательные поля
+    if (json['chatId'] == null) {
+      throw Exception('Chat ID is required');
+    }
+
     final chat = Chat(
       chatId: json['chatId'],
-      name: json['name'],
+      name: json['name'] ?? 'Без названия',
       participants: (json['participants'] as List?)
               ?.map((p) => ChatParticipant.fromJson(p))
               .toList() ??
@@ -58,17 +127,15 @@ class Chat {
       lastMessageAt: json['lastMessageAt'] != null
           ? DateTime.parse(json['lastMessageAt'])
           : null,
-      type: json['type'] == 'meetup'
-          ? ChatType.meetup
-          : json['isGroup'] == true
-              ? ChatType.group
-              : ChatType.direct,
+      type: chatType,
       meetupId: json['meetupId'],
-      isGroup: json['isGroup'] ?? false,
-      createdById: json['createdById'],
-      createdByName: json['createdByName'],
+      isGroup: chatType == ChatType.group,
+      createdById: json['createdById'] ?? 0,
+      createdByName: json['createdByName'] ?? 'Unknown',
       createdByAvatar: json['createdByAvatar'],
-      createdAt: DateTime.parse(json['createdAt']),
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'])
+          : DateTime.now(),
       scheduledTime: json['scheduledTime'] != null
           ? DateTime.parse(json['scheduledTime'])
           : null,

@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/place_serice/place.dart';
+import 'dart:io';
 
 class PlaceImageService {
   final AuthProvider _authProvider;
@@ -9,6 +11,46 @@ class PlaceImageService {
   final http.Client _client = http.Client();
 
   PlaceImageService(this._authProvider);
+
+  Future<String> uploadImage(int placeId, File imageFile) async {
+    try {
+      final token = await _authProvider.getToken();
+      if (token == null) throw Exception('Не авторизован');
+
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/place/$placeId'),
+      );
+
+      request.headers.addAll({
+        'Authorization': 'Bearer $token',
+        'Accept': '*/*',
+      });
+
+      final mimeType = imageFile.path.split('.').last.toLowerCase();
+      final contentType = MediaType('image', mimeType);
+
+      request.files.add(await http.MultipartFile.fromPath(
+        'image',
+        imageFile.path,
+        contentType: contentType,
+      ));
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        return responseData['imageUrl'];
+      } else {
+        print('Response body: ${response.body}');
+        throw Exception('Ошибка загрузки изображения: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error uploading image: $e');
+      rethrow;
+    }
+  }
 
   Future<List<PlaceImage>> getPlaceImages(int placeId) async {
     try {
@@ -24,18 +66,14 @@ class PlaceImageService {
       );
 
       if (response.statusCode == 200) {
-        final List<dynamic> imagesJson = jsonDecode(response.body);
-        // Фильтруем только одобренные изображения
-        return imagesJson
-            .map((json) => PlaceImage.fromJson(json))
-            .where((image) => image.isApproved)
-            .toList();
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => PlaceImage.fromJson(json)).toList();
       } else {
-        throw Exception('Ошибка загрузки изображений: ${response.statusCode}');
+        throw Exception('Ошибка получения изображений: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error loading place images: $e');
-      return [];
+      print('Error getting place images: $e');
+      rethrow;
     }
   }
 
@@ -128,36 +166,6 @@ class PlaceImageService {
       }
     } catch (e) {
       print('Error removing dislike: $e');
-      rethrow;
-    }
-  }
-
-  Future<PlaceImage> uploadImage(int placeId, String imageUrl) async {
-    try {
-      final token = await _authProvider.getToken();
-      final userId = await _authProvider.getUserId();
-      if (token == null) throw Exception('Не авторизован');
-
-      final response = await _client.post(
-        Uri.parse('$_baseUrl/$userId'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'placeId': placeId,
-          'imageUrl': imageUrl,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        return PlaceImage.fromJson(jsonDecode(response.body));
-      } else {
-        throw Exception(
-            'Ошибка при загрузке изображения: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error uploading image: $e');
       rethrow;
     }
   }

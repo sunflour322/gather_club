@@ -19,6 +19,7 @@ class PlaceInfoDialog extends StatelessWidget {
   final Function(Map<String, dynamic>)? onRouteBuilt;
   final Function()? onRouteCleared;
   final AppLatLong location;
+  final PlaceImageService imageService;
 
   const PlaceInfoDialog({
     super.key,
@@ -28,6 +29,7 @@ class PlaceInfoDialog extends StatelessWidget {
     this.onRouteBuilt,
     this.onRouteCleared,
     required this.location,
+    required this.imageService,
   });
 
   @override
@@ -51,6 +53,7 @@ class PlaceInfoDialog extends StatelessWidget {
                   onRouteCleared: onRouteCleared,
                   location: location,
                   scrollController: scrollController,
+                  imageService: imageService,
                 ),
         );
       },
@@ -131,6 +134,7 @@ class _PlaceContent extends StatefulWidget {
   final Function()? onRouteCleared;
   final AppLatLong location;
   final ScrollController scrollController;
+  final PlaceImageService imageService;
 
   const _PlaceContent({
     required this.place,
@@ -139,6 +143,7 @@ class _PlaceContent extends StatefulWidget {
     this.onRouteCleared,
     required this.location,
     required this.scrollController,
+    required this.imageService,
   });
 
   @override
@@ -166,8 +171,7 @@ class _PlaceContentState extends State<_PlaceContent>
   @override
   void initState() {
     super.initState();
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    _imageService = PlaceImageService(authProvider);
+    _imageService = widget.imageService;
     _ratingStateService = RatingStateService();
     _images = widget.initialImages ?? [];
     _initializeUserId();
@@ -314,24 +318,43 @@ class _PlaceContentState extends State<_PlaceContent>
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
       if (image == null) return;
 
-      // TODO: Здесь должна быть логика загрузки изображения на сервер
-      // и получения URL. Сейчас это заглушка.
-      final String imageUrl = "http://example.com/image.jpg";
+      setState(() => _isLoadingImages = true);
 
-      final uploadedImage = await _imageService.uploadImage(
+      final imageFile = File(image.path);
+      final imageUrl = await _imageService.uploadImage(
         widget.place.placeId,
-        imageUrl,
+        imageFile,
       );
 
-      CustomNotification.show(
-        context,
-        'Изображение загружено и ожидает проверки',
-      );
+      if (mounted) {
+        setState(() {
+          _images.add(PlaceImage(
+            placeId: widget.place.placeId,
+            imageId: DateTime.now().millisecondsSinceEpoch,
+            imageUrl: imageUrl,
+            uploadedById: 0, // ID текущего пользователя
+            uploaderUsername: '', // Имя текущего пользователя
+            uploadedAt: DateTime.now(),
+            likes: 0,
+            dislikes: 0,
+            isApproved: false,
+          ));
+          _isLoadingImages = false;
+        });
+
+        CustomNotification.show(
+          context,
+          'Изображение успешно загружено',
+        );
+      }
     } catch (e) {
-      CustomNotification.show(
-        context,
-        'Ошибка при загрузке изображения: $e',
-      );
+      setState(() => _isLoadingImages = false);
+      if (mounted) {
+        CustomNotification.show(
+          context,
+          'Ошибка при загрузке изображения: $e',
+        );
+      }
     }
   }
 

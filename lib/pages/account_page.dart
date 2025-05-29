@@ -9,10 +9,13 @@ import 'package:gather_club/services/user_custom_place_service.dart';
 import 'package:gather_club/place_serice/user_custom_place.dart';
 import 'package:gather_club/pages/Example.dart';
 import 'package:gather_club/navigation/navigation_provider.dart';
+import 'package:gather_club/services/user_service.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:gather_club/widgets/custom_notification.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 
 class AccountPage extends StatefulWidget {
   const AccountPage({super.key});
@@ -30,6 +33,8 @@ class _AccountPageState extends State<AccountPage> {
   bool _isLoading = true;
   late final FriendService _friendService;
   late final UserCustomPlaceService _userPlaceService;
+  late final UserService _userService;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -37,6 +42,7 @@ class _AccountPageState extends State<AccountPage> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _friendService = FriendService(http.Client());
     _userPlaceService = UserCustomPlaceService(authProvider);
+    _userService = UserService(authProvider);
     _loadUserData();
   }
 
@@ -174,6 +180,36 @@ class _AccountPageState extends State<AccountPage> {
     }
   }
 
+  Future<void> _updateAvatar() async {
+    try {
+      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      if (image == null) return;
+
+      final imageFile = File(image.path);
+      final newAvatarUrl = await _userService.updateAvatar(imageFile);
+
+      setState(() {
+        if (_userData != null) {
+          _userData!['avatarUrl'] = newAvatarUrl;
+        }
+      });
+
+      if (mounted) {
+        CustomNotification.show(
+          context,
+          'Аватар успешно обновлен',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomNotification.show(
+          context,
+          'Ошибка при обновлении аватара: $e',
+        );
+      }
+    }
+  }
+
   Widget _buildProfileHeader() {
     return Container(
       height: MediaQuery.of(context).size.height / 3,
@@ -187,11 +223,40 @@ class _AccountPageState extends State<AccountPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundImage: _userData?['avatarUrl'] != null
-                ? NetworkImage(_userData!['avatarUrl'])
-                : const AssetImage('assets/logo.png') as ImageProvider,
+          Stack(
+            children: [
+              CircleAvatar(
+                radius: 50,
+                backgroundImage: _userData?['avatarUrl'] != null
+                    ? NetworkImage(_userData!['avatarUrl'])
+                    : const AssetImage('assets/logo.png') as ImageProvider,
+              ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        spreadRadius: 1,
+                        blurRadius: 3,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.camera_alt),
+                    onPressed: _updateAvatar,
+                    color: Colors.blue,
+                    iconSize: 20,
+                    padding: const EdgeInsets.all(8),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           Text(

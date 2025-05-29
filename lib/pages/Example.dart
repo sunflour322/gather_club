@@ -420,6 +420,7 @@ class _ExamplePageState extends State<ExamplePage>
   void _showPlaceInfo(
       Place place, List<PlaceImage> placeImages, AppLatLong location) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final imageService = PlaceImageService(authProvider);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -430,6 +431,7 @@ class _ExamplePageState extends State<ExamplePage>
         onRouteBuilt: (routeInfo) => _buildRoute(place, routeInfo, location),
         onRouteCleared: _clearRoute,
         location: location,
+        imageService: imageService,
       ),
     );
   }
