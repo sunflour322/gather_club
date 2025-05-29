@@ -1199,6 +1199,7 @@ class _ExamplePageState extends State<ExamplePage>
             },
             mapObjects: _mapObjects,
             mapType: MapType.vector,
+            poiLimit: 0,
           ),
           if (_isLoading || _isRouteCalculating)
             const Center(child: CircularProgressIndicator()),

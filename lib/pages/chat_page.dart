@@ -1,34 +1,9 @@
 import 'package:flutter/material.dart';
-
-class Chat {
-  final String id;
-  final String name;
-  final String lastMessage;
-  final DateTime lastMessageTime;
-  final List<ChatParticipant> participants;
-  final String? imageUrl;
-
-  Chat({
-    required this.id,
-    required this.name,
-    required this.lastMessage,
-    required this.lastMessageTime,
-    required this.participants,
-    this.imageUrl,
-  });
-}
-
-class ChatParticipant {
-  final String id;
-  final String name;
-  final String? avatarUrl;
-
-  ChatParticipant({
-    required this.id,
-    required this.name,
-    this.avatarUrl,
-  });
-}
+import 'package:provider/provider.dart';
+import '../models/chat.dart';
+import '../services/chat_service.dart';
+import '../auth_service/auth_provider.dart';
+import 'chat_detail_page.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -37,200 +12,380 @@ class ChatPage extends StatefulWidget {
   State<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
-  // Временные данные для демонстрации
-  final List<Chat> _chats = [
-    Chat(
-      id: '1',
-      name: 'Встреча в парке',
-      lastMessage: 'До встречи осталось 2 часа!',
-      lastMessageTime: DateTime.now().subtract(const Duration(minutes: 30)),
-      participants: [
-        ChatParticipant(id: '1', name: 'Анна', avatarUrl: 'assets/logo.png'),
-        ChatParticipant(id: '2', name: 'Иван', avatarUrl: 'assets/logo.png'),
-        ChatParticipant(id: '3', name: 'Мария', avatarUrl: 'assets/logo.png'),
-      ],
-    ),
-    Chat(
-      id: '2',
-      name: 'Кофе в центре',
-      lastMessage: 'Принесу печенье!',
-      lastMessageTime: DateTime.now().subtract(const Duration(hours: 2)),
-      participants: [
-        ChatParticipant(id: '4', name: 'Петр', avatarUrl: 'assets/logo.png'),
-        ChatParticipant(id: '5', name: 'Елена', avatarUrl: 'assets/logo.png'),
-      ],
-    ),
-  ];
+class _ChatPageState extends State<ChatPage>
+    with SingleTickerProviderStateMixin {
+  late final ChatService _chatService;
+  List<Chat> _chats = [];
+  List<Chat> _invitedMeetups = [];
+  bool _isLoading = true;
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _chatService =
+        ChatService(Provider.of<AuthProvider>(context, listen: false));
+    _loadData();
+    _initWebSocket();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _chatService.disconnectWebSocket();
+    super.dispose();
+  }
+
+  Future<void> _initWebSocket() async {
+    try {
+      await _chatService.connectToWebSocket();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка подключения к чату: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      print('Начинаем загрузку данных...');
+
+      final futures = await Future.wait([
+        _chatService.getUserChats(),
+        _chatService.getInvitedMeetups(),
+      ]);
+
+      if (mounted) {
+        final chats = futures[0] as List<Chat>;
+        final invitedMeetups = futures[1] as List<Chat>;
+
+        print('Загружено чатов: ${chats.length}');
+        print('Активные встречи: ${chats.where((c) => c.isActive).length}');
+        print(
+            'Завершенные встречи: ${chats.where((c) => c.isCompleted).length}');
+        print('Загружено приглашений: ${invitedMeetups.length}');
+
+        // Выводим детали каждой встречи
+        for (var chat in chats.where((c) => c.type == ChatType.meetup)) {
+          print('Встреча: ${chat.name}');
+          print('- ID: ${chat.meetupId}');
+          print('- Статус: ${chat.meetupStatus}');
+          print('- Статус участника: ${chat.currentUserStatus}');
+          print('- Время: ${chat.scheduledTime}');
+        }
+
+        setState(() {
+          _chats = chats;
+          _invitedMeetups = invitedMeetups;
+          _isLoading = false;
+        });
+      }
+    } catch (e, stackTrace) {
+      print('Ошибка при загрузке данных:');
+      print(e);
+      print(stackTrace);
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка загрузки данных: $e')),
+        );
+      }
+    }
+  }
+
+  List<Chat> _getActiveMeetups() {
+    print('Всего чатов: ${_chats.length}');
+
+    for (var chat in _chats) {
+      print('Чат: ${chat.name}');
+      print('- Тип: ${chat.type}');
+      print('- Статус встречи: ${chat.meetupStatus}');
+      print('- Статус пользователя: ${chat.currentUserStatus}');
+      print('- isActive: ${chat.isActive}');
+    }
+
+    final meetupChats =
+        _chats.where((chat) => chat.type == ChatType.meetup).toList();
+    print('Чаты типа meetup: ${meetupChats.length}');
+
+    final plannedMeetups = meetupChats
+        .where((chat) => chat.meetupStatus == MeetupStatus.planned)
+        .toList();
+    print('Запланированные встречи: ${plannedMeetups.length}');
+
+    final acceptedMeetups = plannedMeetups
+        .where((chat) => chat.currentUserStatus == ParticipantStatus.accepted)
+        .toList();
+    print('Принятые встречи: ${acceptedMeetups.length}');
+
+    for (var chat in acceptedMeetups) {
+      print('Активная встреча:');
+      print('- ID: ${chat.chatId}');
+      print('- Название: ${chat.name}');
+      print('- Статус: ${chat.meetupStatus}');
+      print('- Статус пользователя: ${chat.currentUserStatus}');
+    }
+
+    return acceptedMeetups;
+  }
+
+  void _onChatTap(Chat chat) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatDetailPage(chat: chat),
+      ),
+    ).then((_) => _loadData());
+  }
+
+  Future<void> _respondToInvitation(Chat chat, bool accept) async {
+    try {
+      setState(() => _isLoading = true);
+
+      if (accept) {
+        await _chatService.acceptMeetupInvitation(chat.meetupId!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Вы приняли приглашение на встречу'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        await _chatService.declineMeetupInvitation(chat.meetupId!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Вы отклонили приглашение на встречу'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+
+      // Обновляем данные после успешного ответа
+      await _loadData();
+    } catch (e) {
+      print('Ошибка при обработке приглашения:');
+      print(e);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Ошибка при ${accept ? 'принятии' : 'отклонении'} приглашения: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Widget _buildChatList(List<Chat> chats, {bool showActions = false}) {
+    print('Building chat list:');
+    print('- Number of chats: ${chats.length}');
+    for (var chat in chats) {
+      print('- Chat: ${chat.name}');
+      print('  Type: ${chat.type}');
+      print('  Status: ${chat.meetupStatus}');
+      print('  User Status: ${chat.currentUserStatus}');
+      print('  Is Active: ${chat.isActive}');
+    }
+
+    if (chats.isEmpty) {
+      return const Center(
+        child: Text('Нет доступных чатов'),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: chats.length,
+      itemBuilder: (context, index) {
+        final chat = chats[index];
+        return _buildChatTile(chat, showActions: showActions);
+      },
+    );
+  }
+
+  Widget _buildChatTile(Chat chat, {bool showActions = false}) {
+    final activeParticipants =
+        chat.participants.where((p) => p.leftAt == null).toList();
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(8),
+        leading: Stack(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: chat.createdByAvatar != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(25),
+                      child: Image.network(
+                        chat.createdByAvatar!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.group, color: Colors.grey),
+                      ),
+                    )
+                  : const Icon(Icons.group, color: Colors.grey),
+            ),
+            if (activeParticipants.length > 1)
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${activeParticipants.length}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        title: Text(
+          chat.name,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (chat.scheduledTime != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Дата встречи: ${_formatDateTime(chat.scheduledTime!)}',
+                  style: TextStyle(
+                    color: chat.isCompleted ? Colors.grey : Colors.black87,
+                  ),
+                ),
+              ),
+            if (chat.lastMessageContent != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  chat.lastMessageContent!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            if (showActions)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => _respondToInvitation(chat, false),
+                      child: const Text('Отклонить'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () => _respondToInvitation(chat, true),
+                      child: const Text('Принять'),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+        onTap: () => _onChatTap(chat),
+      ),
+    );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}.${dateTime.month.toString().padLeft(2, '0')}.${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Чаты'),
+        title: const Text('Встречи и чаты'),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Активные'),
+            Tab(text: 'Приглашения'),
+          ],
+        ),
       ),
-      body: ListView.builder(
-        itemCount: _chats.length,
-        itemBuilder: (context, index) {
-          final chat = _chats[index];
-          return Dismissible(
-            key: Key(chat.id),
-            direction: DismissDirection.horizontal,
-            background: Container(
-              color: Colors.grey[200],
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.only(left: 20),
-              child: const Icon(Icons.arrow_back_ios, color: Colors.grey),
-            ),
-            secondaryBackground: Container(
-              color: Colors.grey[200],
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 20),
-              child: const Icon(Icons.arrow_forward_ios, color: Colors.grey),
-            ),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  bottom: BorderSide(
-                    color: Colors.grey[200]!,
-                    width: 1,
-                  ),
-                ),
-              ),
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                leading: Stack(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : StreamBuilder<Chat>(
+              stream: _chatService.chatUpdates,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Ошибка соединения: ${snapshot.error}'),
+                  );
+                }
+
+                if (snapshot.hasData) {
+                  final updatedChat = snapshot.data!;
+                  final existingIndex = _chats
+                      .indexWhere((chat) => chat.chatId == updatedChat.chatId);
+
+                  if (existingIndex != -1) {
+                    setState(() {
+                      _chats[existingIndex] = updatedChat;
+                    });
+                  } else {
+                    setState(() {
+                      _chats.add(updatedChat);
+                    });
+                  }
+                }
+
+                return TabBarView(
+                  controller: _tabController,
                   children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                      child: chat.imageUrl != null
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(25),
-                              child: Image.asset(
-                                chat.imageUrl!,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : const Icon(Icons.group, color: Colors.grey),
-                    ),
-                    if (chat.participants.length > 1)
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '${chat.participants.length}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
+                    Builder(builder: (context) {
+                      final activeMeetups = _getActiveMeetups();
+                      print('Active meetups tab:');
+                      print('- Active meetups count: ${activeMeetups.length}');
+                      activeMeetups.forEach((meetup) {
+                        print('- Meetup: ${meetup.name}');
+                        print('  Is Active: ${meetup.isActive}');
+                      });
+                      return _buildChatList(activeMeetups);
+                    }),
+                    _buildChatList(_invitedMeetups, showActions: true),
                   ],
-                ),
-                title: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        chat.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      _formatTime(chat.lastMessageTime),
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    Text(
-                      chat.lastMessage,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 30,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: chat.participants.length,
-                        itemBuilder: (context, index) {
-                          final participant = chat.participants[index];
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: CircleAvatar(
-                              radius: 12,
-                              backgroundColor: Colors.grey[200],
-                              backgroundImage: participant.avatarUrl != null
-                                  ? AssetImage(participant.avatarUrl!)
-                                  : null,
-                              child: participant.avatarUrl == null
-                                  ? Text(
-                                      participant.name[0],
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                onTap: () {},
-              ),
+                );
+              },
             ),
-          );
-        },
-      ),
     );
-  }
-
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final difference = now.difference(time);
-
-    if (difference.inDays > 0) {
-      return '${difference.inDays}д';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours}ч';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes}м';
-    } else {
-      return 'только что';
-    }
   }
 }

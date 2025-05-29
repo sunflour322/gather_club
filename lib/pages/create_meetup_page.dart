@@ -161,6 +161,9 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
           context,
           'Встреча успешно создана',
         );
+
+        // Обновляем список чатов
+        Navigator.pushNamed(context, '/chat');
       }
     } catch (e, stackTrace) {
       developer.log(
