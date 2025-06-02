@@ -6,11 +6,18 @@ import '../models/chat.dart';
 import '../models/chat_message.dart';
 import '../services/chat_service.dart';
 import '../auth_service/auth_provider.dart';
+import '../widgets/participants_dialog.dart';
+import '../models/chat_participant_info.dart';
 
 class ChatDetailPage extends StatefulWidget {
   final Chat chat;
+  final bool isArchived;
 
-  const ChatDetailPage({super.key, required this.chat});
+  const ChatDetailPage({
+    super.key,
+    required this.chat,
+    this.isArchived = false,
+  });
 
   @override
   State<ChatDetailPage> createState() => _ChatDetailPageState();
@@ -23,6 +30,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   bool _isTyping = false;
   late final ChatService _chatService;
   int? _currentUserId;
+  List<ChatMessage> _messages = [];
+  bool _isLoading = true;
+  Timer? _typingTimer;
+  bool _isLoadingMore = false;
+  int _currentPage = 0;
+  static const int _pageSize = 20;
+  List<ChatParticipantInfo> _participants = [];
 
   @override
   void initState() {
@@ -31,6 +45,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         ChatService(Provider.of<AuthProvider>(context, listen: false));
     _initWebSocket();
     _getCurrentUser();
+    _loadInitialData();
   }
 
   Future<void> _getCurrentUser() async {
@@ -41,6 +56,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   Future<void> _initWebSocket() async {
     try {
       await _chatService.connectToWebSocket();
+
+      // Для архивных встреч не подписываемся на сообщения через WebSocket
+      if (widget.isArchived) {
+        print('Архивная встреча: пропускаем подписку на WebSocket');
+        return;
+      }
+
       await _chatService.subscribeToChat(
         widget.chat.chatId,
         onTyping: (userId) {
@@ -316,67 +338,219 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     );
   }
 
+  Future<void> _loadInitialData() async {
+    setState(() => _isLoading = true);
+    try {
+      if (widget.isArchived) {
+        // Для архивных встреч загружаем только участников
+        await _loadParticipants();
+      } else {
+        // Для обычных встреч загружаем и сообщения, и участников
+        await Future.wait([
+          _loadMessages(),
+          _loadParticipants(),
+        ]);
+      }
+    } catch (e) {
+      print('Ошибка при загрузке данных: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка загрузки данных: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadParticipants() async {
+    try {
+      // Для архивных встреч участники уже должны быть в объекте chat
+      if (widget.isArchived && widget.chat.participants.isNotEmpty) {
+        print('Архивная встреча: используем предзагруженных участников');
+
+        // Создаем список для хранения всех участников
+        final List<ChatParticipantInfo> allParticipants = [];
+
+        // Флаг для отслеживания, добавлен ли организатор
+        bool creatorIncluded = false;
+
+        // Преобразуем ChatParticipant в ChatParticipantInfo
+        for (var p in widget.chat.participants) {
+          final participantInfo = ChatParticipantInfo(
+            userId: p.userId,
+            username: p.name,
+            avatarUrl: p.avatarUrl,
+            // Определяем роль: если это создатель, то "admin", иначе "participant"
+            role: p.userId == widget.chat.createdById ? 'admin' : 'participant',
+            joinedAt: p.joinedAt,
+          );
+
+          allParticipants.add(participantInfo);
+
+          // Проверяем, является ли этот участник организатором
+          if (p.userId == widget.chat.createdById) {
+            creatorIncluded = true;
+          }
+        }
+
+        // Если организатор не включен в список участников, добавляем его
+        if (!creatorIncluded) {
+          print('Добавляем организатора в список участников');
+          allParticipants.add(
+            ChatParticipantInfo(
+              userId: widget.chat.createdById,
+              username: widget.chat.createdByName,
+              avatarUrl: widget.chat.createdByAvatar,
+              role: 'admin',
+              joinedAt: widget.chat.createdAt,
+            ),
+          );
+        }
+
+        if (mounted) {
+          setState(() => _participants = allParticipants);
+        }
+
+        // Логируем участников для отладки
+        print(
+            'Загружено ${allParticipants.length} участников архивной встречи:');
+        for (var i = 0; i < allParticipants.length; i++) {
+          print(
+              '- Участник #$i: ${allParticipants[i].username} (ID: ${allParticipants[i].userId}, роль: ${allParticipants[i].role})');
+        }
+
+        return;
+      }
+
+      // Для обычных встреч загружаем участников через API
+      final participants =
+          await _chatService.getChatParticipantsInfo(widget.chat.chatId);
+
+      // Проверяем, есть ли организатор в списке участников
+      bool creatorIncluded =
+          participants.any((p) => p.userId == widget.chat.createdById);
+
+      // Если организатора нет в списке, добавляем его
+      if (!creatorIncluded) {
+        print('Добавляем организатора в список участников для обычной встречи');
+        participants.add(
+          ChatParticipantInfo(
+            userId: widget.chat.createdById,
+            username: widget.chat.createdByName,
+            avatarUrl: widget.chat.createdByAvatar,
+            role: 'admin',
+            joinedAt: widget.chat.createdAt,
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() => _participants = participants);
+      }
+    } catch (e) {
+      print('Ошибка при загрузке участников: $e');
+    }
+  }
+
+  Future<void> _loadMessages() async {
+    // Не загружаем сообщения для архивных встреч
+    if (widget.isArchived) {
+      print('Архивная встреча: пропускаем загрузку сообщений');
+      return;
+    }
+
+    try {
+      final messages = await _chatService.getChatMessages(
+        widget.chat.chatId,
+        limit: _pageSize,
+        offset: _currentPage * _pageSize,
+      );
+      if (mounted) {
+        setState(() {
+          _messages = messages;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Ошибка при загрузке сообщений: $e');
+      rethrow;
+    }
+  }
+
+  void _showParticipantsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => ParticipantsDialog(participants: _participants),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.chat.name),
-            Text(
-              '${widget.chat.participants.where((p) => p.leftAt == null).length} участников',
-              style:
-                  const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+        title: Text(widget.chat.name),
+        actions: [
+          if (widget.isArchived)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8.0),
+              child: Icon(Icons.archive, color: Colors.grey),
             ),
-          ],
-        ),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
+          IconButton(
+            icon: const Icon(Icons.group),
+            onPressed: _showParticipantsDialog,
+          ),
+        ],
       ),
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder<List<ChatMessage>>(
-              stream: _chatService.getChatMessagesStream(widget.chat.chatId),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Ошибка: ${snapshot.error}'));
-                }
+            child: widget.isArchived
+                ? _buildArchivedChatView()
+                : StreamBuilder<List<ChatMessage>>(
+                    stream:
+                        _chatService.getChatMessagesStream(widget.chat.chatId),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Ошибка: ${snapshot.error}'));
+                      }
 
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                final messages = snapshot.data!;
-                print('Обновление UI: ${messages.length} сообщений');
+                      final messages = snapshot.data!;
+                      print('Обновление UI: ${messages.length} сообщений');
 
-                // Автоматическая прокрутка при новых сообщениях
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_scrollController.hasClients) {
-                    _scrollController.animateTo(
-                      _scrollController.position.maxScrollExtent,
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOut,
-                    );
-                  }
-                });
+                      // Автоматическая прокрутка при новых сообщениях
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (_scrollController.hasClients) {
+                          _scrollController.animateTo(
+                            _scrollController.position.maxScrollExtent,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOut,
+                          );
+                        }
+                      });
 
-                return ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(8),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    // Берем сообщения с конца списка
-                    final message = messages[messages.length - 1 - index];
-                    final isCurrentUser = message.senderId == _currentUserId;
-                    return _buildMessageItem(message, isCurrentUser);
-                  },
-                );
-              },
-            ),
+                      return ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(8),
+                        itemCount: messages.length,
+                        itemBuilder: (context, index) {
+                          // Берем сообщения с конца списка
+                          final message = messages[messages.length - 1 - index];
+                          final isCurrentUser =
+                              message.senderId == _currentUserId;
+                          return _buildMessageItem(message, isCurrentUser);
+                        },
+                      );
+                    },
+                  ),
           ),
-          if (_isTyping)
+          if (_isTyping && !widget.isArchived)
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: Row(
@@ -398,7 +572,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                 ],
               ),
             ),
-          if (_replyTo != null)
+          if (_replyTo != null && !widget.isArchived)
             Container(
               padding: const EdgeInsets.all(8),
               color: Colors.grey[200],
@@ -435,34 +609,100 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                 ],
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: 'Введите сообщение...',
-                      border: OutlineInputBorder(),
+          if (!widget.isArchived)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Введите сообщение...',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: null,
+                      textCapitalization: TextCapitalization.sentences,
+                      onChanged: (_) =>
+                          _chatService.notifyTyping(widget.chat.chatId),
                     ),
-                    maxLines: null,
-                    textCapitalization: TextCapitalization.sentences,
-                    onChanged: (_) =>
-                        _chatService.notifyTyping(widget.chat.chatId),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _sendMessage,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ],
+                  IconButton(
+                    icon: const Icon(Icons.send),
+                    onPressed: _sendMessage,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ],
+              ),
             ),
+          if (widget.isArchived)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              color: Colors.grey[200],
+              child: const Text(
+                'Эта встреча завершена. Отправка сообщений недоступна.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildArchivedChatView() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.archive_outlined,
+            size: 64,
+            color: Colors.grey,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Архивная встреча',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Состоялась ${widget.chat.scheduledTime != null ? _formatDateTime(widget.chat.scheduledTime!) : "ранее"}',
+            style: const TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Сообщения этой встречи недоступны',
+            style: TextStyle(color: Colors.grey),
           ),
         ],
       ),
     );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(dateTime.year, dateTime.month, dateTime.day);
+
+    String timeStr =
+        '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+
+    if (date == today) {
+      return 'сегодня в $timeStr';
+    } else if (date == today.subtract(const Duration(days: 1))) {
+      return 'вчера в $timeStr';
+    } else {
+      return '${dateTime.day}.${dateTime.month}.${dateTime.year} в $timeStr';
+    }
   }
 
   String _formatTime(DateTime time) {

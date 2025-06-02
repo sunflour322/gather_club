@@ -1144,53 +1144,6 @@ class _ExamplePageState extends State<ExamplePage>
     super.build(context);
     return Scaffold(
       key: ExamplePage.globalKey,
-      appBar: AppBar(
-        title: const Text('Интересные места'),
-        actions: [
-          if (!_isLoading)
-            IconButton(
-              icon: const Icon(Icons.my_location),
-              onPressed: _hasLocationPermission ? _moveToCurrentLocation : null,
-            ),
-          if (!_isLoading)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _fetchPlaces,
-            ),
-          if (!_isLoading)
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () async {
-                try {
-                  await _authService.logout();
-                  if (mounted) {
-                    // Очищаем состояние
-                    setState(() {
-                      _places = [];
-                      _userPlaces = [];
-                      _mapObjects.clear();
-                    });
-                    // Перенаправляем на страницу логина
-                    Navigator.of(context).pushNamedAndRemoveUntil(
-                      '/login',
-                      (route) => false,
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    CustomNotification.show(context, 'Ошибка при выходе: $e');
-                  }
-                }
-              },
-            ),
-          // Кнопка очистки маршрута
-          if (_routePolyline != null && !_isLoading)
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: _clearRoute,
-            ),
-        ],
-      ),
       body: Stack(
         children: [
           YandexMap(
@@ -1304,33 +1257,10 @@ class _ExamplePageState extends State<ExamplePage>
             ),
         ],
       ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton(
-            heroTag: 'location',
-            child: const Icon(Icons.info_outline),
-            onPressed: () {
-              CustomNotification.show(
-                context,
-                _hasLocationPermission
-                    ? 'Разрешение на геолокацию получено'
-                    : 'Нет разрешения на геолокацию',
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton(
-            heroTag: 'places',
-            child: const Icon(Icons.place),
-            onPressed: () {
-              CustomNotification.show(
-                context,
-                'Найдено ${_places.length} мест',
-              );
-            },
-          ),
-        ],
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'location',
+        onPressed: _hasLocationPermission ? _moveToCurrentLocation : null,
+        child: const Icon(Icons.my_location),
       ),
     );
   }

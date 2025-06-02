@@ -1,0 +1,2 @@
+/home/user/projects/gather_club/android/app/.cxx/RelWithDebInfo/542a306f/armeabi-v7a/CMakeFiles/edit_cache.dir
+/home/user/projects/gather_club/android/app/.cxx/RelWithDebInfo/542a306f/armeabi-v7a/CMakeFiles/rebuild_cache.dir

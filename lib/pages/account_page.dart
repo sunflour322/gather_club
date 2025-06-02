@@ -586,7 +586,6 @@ class _AccountPageState extends State<AccountPage> {
                 _buildStatItem('12', 'Встреч'),
                 _buildStatItem('${_acceptedFriends.length}', 'Друзей'),
                 _buildStatItem('${_userPlaces.length}', 'Мест'),
-                _buildStatItem('150', 'Очков'),
               ],
             ),
           ],

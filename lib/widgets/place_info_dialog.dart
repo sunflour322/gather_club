@@ -645,14 +645,6 @@ class _PlaceContentState extends State<_PlaceContent>
           onPressed: _uploadImage,
         ),
         _buildActionButton(
-          icon: Icons.monetization_on,
-          label: 'Монеты',
-          color: Colors.amber,
-          onPressed: () {
-            // TODO: Реализовать получение монет
-          },
-        ),
-        _buildActionButton(
           icon: Icons.group_add,
           label: 'Встреча',
           color: Colors.purple,

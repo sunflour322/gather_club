@@ -1,0 +1,1 @@
+/home/user/projects/gather_club/build/app/intermediates/cxx/RelWithDebInfo/542a306f/obj/x86_64

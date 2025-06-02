@@ -5,6 +5,7 @@ import 'package:stomp_dart_client/stomp_frame.dart';
 import 'package:http/http.dart' as http;
 import '../models/chat.dart';
 import '../models/chat_message.dart';
+import '../models/chat_participant_info.dart';
 import '../auth_service/auth_provider.dart';
 import 'dart:async';
 
@@ -25,6 +26,10 @@ class ChatService {
   // Добавляем контроллер для сообщений чата
   final Map<int, StreamController<List<ChatMessage>>> _messageControllers = {};
 
+  static const int maxReconnectAttempts = 3;
+  int _reconnectAttempts = 0;
+  bool _isReconnecting = false;
+
   ChatService(this._authProvider);
 
   // Получаем стрим сообщений для конкретного чата
@@ -44,63 +49,44 @@ class ChatService {
     if (userId == null) throw Exception('Не авторизован');
 
     try {
-      print('Получаем чаты пользователя...');
-      // Получаем все чаты пользователя
-      final chatsResponse = await http.get(
-        Uri.parse('$baseUrl/chats'),
+      print('Получаем активные встречи пользователя...');
+      final response = await http.get(
+        Uri.parse('$baseUrl/meetups/active'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
       );
 
-      if (chatsResponse.statusCode != 200) {
-        throw Exception('Ошибка загрузки чатов: ${chatsResponse.statusCode}');
-      }
-
-      final List<dynamic> chatsJson = jsonDecode(chatsResponse.body);
-      print('Получено чатов: ${chatsJson.length}');
-
-      print('Получаем встречи пользователя...');
-      // Получаем встречи через новый эндпоинт
-      final meetupsResponse = await http.get(
-        Uri.parse('$baseUrl/meetups/owned-and-accepted/$userId'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (meetupsResponse.statusCode != 200) {
+      if (response.statusCode != 200) {
         throw Exception(
-            'Ошибка загрузки встреч: ${meetupsResponse.statusCode}');
+            'Ошибка загрузки активных встреч: ${response.statusCode}');
       }
 
-      final List<dynamic> meetupsJson = jsonDecode(meetupsResponse.body);
-      print('Получено встреч: ${meetupsJson.length}');
+      final List<dynamic> meetupsJson = jsonDecode(response.body);
+      print('Получено активных встреч: ${meetupsJson.length}');
 
-      // Преобразуем встречи в чаты
-      final meetupChats = await _convertMeetupsToChats(meetupsJson);
+      final chats = meetupsJson.map((json) {
+        // Преобразуем meetup в формат chat для совместимости
+        final Map<String, dynamic> chatJson = {
+          ...Map<String, dynamic>.from(json as Map),
+          'chatId': json['meetupId'],
+        };
+        return Chat.fromJson(chatJson);
+      }).toList();
 
-      // Объединяем все чаты
-      final allChats = [
-        ...chatsJson.map((json) => Chat.fromJson(json)),
-        ...meetupChats
-      ];
+      print('Преобразовано активных встреч: ${chats.length}');
+      for (var chat in chats) {
+        print('Активная встреча: ${chat.name}');
+        print('- ID чата: ${chat.chatId}');
+        print('- ID встречи: ${chat.meetupId}');
+        print('- Тип: ${chat.type}');
+        print('- Статус: ${chat.meetupStatus}');
+      }
 
-      // Удаляем дубликаты по chatId
-      final uniqueChats = allChats
-          .fold<Map<int, Chat>>({}, (map, chat) {
-            map[chat.chatId] = chat;
-            return map;
-          })
-          .values
-          .toList();
-
-      print('Всего уникальных чатов: ${uniqueChats.length}');
-      return uniqueChats;
+      return chats;
     } catch (e, stackTrace) {
-      print('Ошибка при получении чатов:');
+      print('Ошибка при получении активных встреч:');
       print(e);
       print(stackTrace);
       rethrow;
@@ -241,7 +227,7 @@ class ChatService {
     }
   }
 
-  Future<void> acceptMeetupInvitation(int meetupId) async {
+  Future<List<Chat>> getInvitedMeetups() async {
     final token = await _authProvider.getToken();
     if (token == null) throw Exception('Не авторизован');
 
@@ -249,52 +235,75 @@ class ChatService {
     if (userId == null) throw Exception('Не авторизован');
 
     try {
-      print('Принимаем приглашение на встречу $meetupId...');
-      final response = await http.put(
-        Uri.parse(
-            '$baseUrl/meetups/$meetupId/participants/$userId?status=accepted'),
+      print('Получаем приглашения на встречи...');
+      final response = await http.get(
+        Uri.parse('$baseUrl/meetups/invited'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
       );
 
-      if (response.statusCode == 200) {
-        print('Приглашение успешно принято');
-        // Уведомляем подписчиков об обновлении чата
-        final updatedMeetup = jsonDecode(response.body);
-        final participants = updatedMeetup['participants'] as List<dynamic>;
-        _chatUpdateController.add(Chat.fromJson({
-          'chatId': updatedMeetup['meetupId'],
-          'name': updatedMeetup['name'],
-          'type': 'meetup',
-          'createdById': updatedMeetup['creator']['userId'],
-          'createdByName': updatedMeetup['creator']['username'],
-          'createdByAvatar': updatedMeetup['creator']['avatarUrl'],
-          'createdAt': updatedMeetup['createdAt'],
-          'isGroup': true,
-          'meetupId': updatedMeetup['meetupId'],
-          'scheduledTime': updatedMeetup['scheduledTime'],
-          'meetupStatus': updatedMeetup['status'],
-          'unreadCount': 0,
-          'participants': participants.map((p) {
-            final user = p['user'] as Map<String, dynamic>;
-            return {
-              'participantId': p['participantId'],
-              'chatId': updatedMeetup['meetupId'],
-              'userId': user['userId'],
-              'userName': user['username'],
-              'userAvatar': user['avatarUrl'],
-              'joinedAt': p['invitedAt'],
-              'leftAt': null,
-              'role': 'member'
-            };
-          }).toList(),
-          'currentUserStatus': 'accepted'
-        }));
-      } else {
-        print('Ошибка при принятии приглашения: ${response.statusCode}');
-        print('Ответ сервера: ${response.body}');
+      if (response.statusCode != 200) {
+        throw Exception('Ошибка загрузки приглашений: ${response.statusCode}');
+      }
+
+      final List<dynamic> meetupsJson = jsonDecode(response.body);
+      print('Получено приглашений: ${meetupsJson.length}');
+
+      // Детальное логирование для отладки приглашений
+      print('Содержимое приглашений (JSON):');
+      for (var i = 0; i < meetupsJson.length; i++) {
+        print('Приглашение #$i JSON: ${meetupsJson[i]}');
+      }
+
+      final chats = meetupsJson.map((json) {
+        // Преобразуем meetup в формат chat для совместимости
+        final Map<String, dynamic> chatJson = {
+          ...Map<String, dynamic>.from(json as Map),
+          'chatId': json['meetupId'],
+          // Принудительно устанавливаем lastMessageContent в null для приглашений
+          'lastMessageContent': null,
+        };
+        return Chat.fromJson(chatJson);
+      }).toList();
+
+      print('Преобразовано приглашений: ${chats.length}');
+      for (var chat in chats) {
+        print('Приглашение: ${chat.name}');
+        print('- ID чата: ${chat.chatId}');
+        print('- ID встречи: ${chat.meetupId}');
+        print('- Тип: ${chat.type}');
+        print('- Время встречи: ${chat.scheduledTime}');
+        print('- Организатор: ${chat.createdByName}');
+        print('- Участники: ${chat.participants.length}');
+        print('- Последнее сообщение: ${chat.lastMessageContent}');
+      }
+
+      return chats;
+    } catch (e, stackTrace) {
+      print('Ошибка при получении приглашений:');
+      print(e);
+      print(stackTrace);
+      rethrow;
+    }
+  }
+
+  Future<void> acceptMeetupInvitation(int meetupId) async {
+    final token = await _authProvider.getToken();
+    if (token == null) throw Exception('Не авторизован');
+
+    try {
+      print('Принимаем приглашение на встречу $meetupId...');
+      final response = await http.post(
+        Uri.parse('$baseUrl/meetups/$meetupId/accept'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode != 200) {
         throw Exception(
             'Ошибка при принятии приглашения: ${response.statusCode}');
       }
@@ -310,56 +319,17 @@ class ChatService {
     final token = await _authProvider.getToken();
     if (token == null) throw Exception('Не авторизован');
 
-    final userId = await _authProvider.getUserId();
-    if (userId == null) throw Exception('Не авторизован');
-
     try {
       print('Отклоняем приглашение на встречу $meetupId...');
-      final response = await http.put(
-        Uri.parse(
-            '$baseUrl/meetups/$meetupId/participants/$userId?status=declined'),
+      final response = await http.post(
+        Uri.parse('$baseUrl/meetups/$meetupId/decline'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
       );
 
-      if (response.statusCode == 200) {
-        print('Приглашение успешно отклонено');
-        // Уведомляем подписчиков об обновлении чата
-        final updatedMeetup = jsonDecode(response.body);
-        final participants = updatedMeetup['participants'] as List<dynamic>;
-        _chatUpdateController.add(Chat.fromJson({
-          'chatId': updatedMeetup['meetupId'],
-          'name': updatedMeetup['name'],
-          'type': 'meetup',
-          'createdById': updatedMeetup['creator']['userId'],
-          'createdByName': updatedMeetup['creator']['username'],
-          'createdByAvatar': updatedMeetup['creator']['avatarUrl'],
-          'createdAt': updatedMeetup['createdAt'],
-          'isGroup': true,
-          'meetupId': updatedMeetup['meetupId'],
-          'scheduledTime': updatedMeetup['scheduledTime'],
-          'meetupStatus': updatedMeetup['status'],
-          'unreadCount': 0,
-          'participants': participants.map((p) {
-            final user = p['user'] as Map<String, dynamic>;
-            return {
-              'participantId': p['participantId'],
-              'chatId': updatedMeetup['meetupId'],
-              'userId': user['userId'],
-              'userName': user['username'],
-              'userAvatar': user['avatarUrl'],
-              'joinedAt': p['invitedAt'],
-              'leftAt': null,
-              'role': 'member'
-            };
-          }).toList(),
-          'currentUserStatus': 'declined'
-        }));
-      } else {
-        print('Ошибка при отклонении приглашения: ${response.statusCode}');
-        print('Ответ сервера: ${response.body}');
+      if (response.statusCode != 200) {
         throw Exception(
             'Ошибка при отклонении приглашения: ${response.statusCode}');
       }
@@ -369,271 +339,6 @@ class ChatService {
       print(stackTrace);
       rethrow;
     }
-  }
-
-  Future<List<Chat>> getInvitedMeetups() async {
-    final token = await _authProvider.getToken();
-    if (token == null) throw Exception('Не авторизован');
-
-    final userId = await _authProvider.getUserId();
-    if (userId == null) throw Exception('Не авторизован');
-
-    try {
-      print('Получаем приглашения на встречи...');
-      final response = await http.get(
-        Uri.parse('$baseUrl/meetups/invitations/$userId'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final List<dynamic> meetupsJson = jsonDecode(response.body);
-        print('Получено приглашений: ${meetupsJson.length}');
-
-        // Преобразуем встречи в формат чатов
-        final List<Map<String, dynamic>> meetupChats =
-            meetupsJson.map((meetup) {
-          final creator = meetup['creator'] as Map<String, dynamic>;
-          final place = meetup['place'] as Map<String, dynamic>;
-          final participants = meetup['participants'] as List<dynamic>;
-
-          // Находим статус текущего пользователя
-          final currentUserParticipant = participants.firstWhere(
-            (p) => (p['user'] as Map<String, dynamic>)['userId'] == userId,
-            orElse: () => null,
-          );
-
-          print('Преобразование приглашения: ${meetup['name']}');
-          print('- ID встречи: ${meetup['meetupId']}');
-          print('- Создатель: ${creator['username']}');
-          print('- Место: ${place['name']}');
-          print('- Статус: ${meetup['status']}');
-          print('- Участников: ${participants.length}');
-
-          return {
-            'chatId': meetup['meetupId'],
-            'name': meetup['name'],
-            'createdById': creator['userId'],
-            'createdByName': creator['username'],
-            'createdByAvatar': creator['avatarUrl'],
-            'createdAt': meetup['createdAt'],
-            'isGroup': true,
-            'meetupId': meetup['meetupId'],
-            'scheduledTime': meetup['scheduledTime'],
-            'meetupStatus': meetup['status'],
-            'unreadCount': 0,
-            'participants': participants.map((p) {
-              final user = p['user'] as Map<String, dynamic>;
-              return {
-                'participantId': p['participantId'],
-                'chatId': meetup['meetupId'],
-                'userId': user['userId'],
-                'userName': user['username'],
-                'userAvatar': user['avatarUrl'],
-                'joinedAt': p['invitedAt'],
-                'leftAt': null,
-                'role': 'member'
-              };
-            }).toList(),
-            'currentUserStatus': currentUserParticipant?['status'] ?? 'invited'
-          };
-        }).toList();
-
-        print('Преобразовано встреч: ${meetupChats.length}');
-        return meetupChats.map((json) => Chat.fromJson(json)).toList();
-      } else {
-        print('Ошибка загрузки приглашений: ${response.statusCode}');
-        print('Ответ сервера: ${response.body}');
-        throw Exception('Ошибка загрузки приглашений: ${response.statusCode}');
-      }
-    } catch (e, stackTrace) {
-      print('Ошибка при получении приглашений:');
-      print(e);
-      print(stackTrace);
-      rethrow;
-    }
-  }
-
-  Future<List<Chat>> getActiveMeetups() async {
-    final token = await _authProvider.getToken();
-    if (token == null) throw Exception('Не авторизован');
-
-    final userId = await _authProvider.getUserId();
-    if (userId == null) throw Exception('Не авторизован');
-
-    try {
-      print('Получаем активные встречи...');
-      final response = await http.get(
-        Uri.parse('$baseUrl/meetups/active/$userId'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final List<dynamic> meetupsJson = jsonDecode(response.body);
-        return await _convertMeetupsToChats(meetupsJson);
-      } else {
-        print('Ошибка загрузки активных встреч: ${response.statusCode}');
-        print('Ответ сервера: ${response.body}');
-        throw Exception(
-            'Ошибка загрузки активных встреч: ${response.statusCode}');
-      }
-    } catch (e, stackTrace) {
-      print('Ошибка при получении активных встреч:');
-      print(e);
-      print(stackTrace);
-      rethrow;
-    }
-  }
-
-  Future<List<Chat>> getPendingMeetups() async {
-    final token = await _authProvider.getToken();
-    if (token == null) throw Exception('Не авторизован');
-
-    final userId = await _authProvider.getUserId();
-    if (userId == null) throw Exception('Не авторизован');
-
-    try {
-      print('Получаем ожидающие встречи...');
-      final response = await http.get(
-        Uri.parse('$baseUrl/meetups/pending/$userId'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final List<dynamic> meetupsJson = jsonDecode(response.body);
-        return await _convertMeetupsToChats(meetupsJson);
-      } else {
-        print('Ошибка загрузки ожидающих встреч: ${response.statusCode}');
-        print('Ответ сервера: ${response.body}');
-        throw Exception(
-            'Ошибка загрузки ожидающих встреч: ${response.statusCode}');
-      }
-    } catch (e, stackTrace) {
-      print('Ошибка при получении ожидающих встреч:');
-      print(e);
-      print(stackTrace);
-      rethrow;
-    }
-  }
-
-  Future<List<Chat>> getOwnedAndAcceptedMeetups() async {
-    final token = await _authProvider.getToken();
-    if (token == null) throw Exception('Не авторизован');
-
-    final userId = await _authProvider.getUserId();
-    if (userId == null) throw Exception('Не авторизован');
-
-    try {
-      print('Получаем созданные и принятые встречи...');
-      final response = await http.get(
-        Uri.parse('$baseUrl/meetups/owned-and-accepted/$userId'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final List<dynamic> meetupsJson = jsonDecode(response.body);
-        return await _convertMeetupsToChats(meetupsJson);
-      } else {
-        print(
-            'Ошибка загрузки созданных и принятых встреч: ${response.statusCode}');
-        print('Ответ сервера: ${response.body}');
-        throw Exception(
-            'Ошибка загрузки созданных и принятых встреч: ${response.statusCode}');
-      }
-    } catch (e, stackTrace) {
-      print('Ошибка при получении созданных и принятых встреч:');
-      print(e);
-      print(stackTrace);
-      rethrow;
-    }
-  }
-
-  Future<List<Chat>> _convertMeetupsToChats(List<dynamic> meetupsJson) async {
-    final userId = await _authProvider.getUserId();
-    if (userId == null) throw Exception('Не авторизован');
-
-    final List<Chat> meetupChats = [];
-
-    for (var meetup in meetupsJson) {
-      try {
-        final creator = meetup['creator'] as Map<String, dynamic>;
-        final participants = meetup['participants'] as List<dynamic>;
-
-        print('Преобразование встречи в чат:');
-        print('- ID встречи: ${meetup['meetupId']}');
-        print('- ID чата: ${meetup['chatId'] ?? meetup['meetupId']}');
-        print('- Название: ${meetup['name']}');
-        print('- Статус встречи: ${meetup['status']}');
-
-        // Находим статус текущего пользователя
-        String currentUserStatus;
-        if (creator['userId'] == userId) {
-          currentUserStatus = 'accepted';
-        } else {
-          final userParticipant = participants.firstWhere(
-            (p) => (p['user'] as Map<String, dynamic>)['userId'] == userId,
-            orElse: () => null,
-          );
-          currentUserStatus = userParticipant?['status'] ?? 'invited';
-        }
-
-        print('- Статус текущего пользователя: $currentUserStatus');
-
-        final chatJson = {
-          // Если chatId не указан, используем meetupId как chatId
-          'chatId': meetup['chatId'] ?? meetup['meetupId'],
-          'name': meetup['name'],
-          'type': 'meetup',
-          'createdById': creator['userId'],
-          'createdByName': creator['username'],
-          'createdByAvatar': creator['avatarUrl'],
-          'createdAt': meetup['createdAt'],
-          'isGroup': true,
-          'meetupId': meetup['meetupId'],
-          'scheduledTime': meetup['scheduledTime'],
-          'meetupStatus': meetup['status'],
-          'currentUserStatus': currentUserStatus,
-          'participants': participants.map((p) {
-            final user = p['user'] as Map<String, dynamic>;
-            return {
-              'userId': user['userId'],
-              'userName': user['username'],
-              'userAvatar': user['avatarUrl'],
-              'role': 'member',
-              'joinedAt': p['invitedAt'],
-              'leftAt': null
-            };
-          }).toList(),
-        };
-
-        final chat = Chat.fromJson(chatJson);
-        print('Создан чат:');
-        print('- ID: ${chat.chatId}');
-        print('- Тип: ${chat.type}');
-        print('- Статус встречи: ${chat.meetupStatus}');
-        print('- Статус пользователя: ${chat.currentUserStatus}');
-        print('- Активен: ${chat.isActive}');
-
-        meetupChats.add(chat);
-      } catch (e, stackTrace) {
-        print('Ошибка при преобразовании встречи ${meetup['meetupId']}:');
-        print(e);
-        print(stackTrace);
-      }
-    }
-
-    return meetupChats;
   }
 
   // WebSocket методы
@@ -672,6 +377,8 @@ class ChatService {
     try {
       _stompClient!.activate();
       print('WebSocket connection activated');
+      _reconnectAttempts = 0;
+      _isReconnecting = false;
     } catch (e, stackTrace) {
       print('Error activating WebSocket connection:');
       print(e);
@@ -682,13 +389,27 @@ class ChatService {
   }
 
   void _reconnectWebSocket() async {
-    print('Attempting to reconnect WebSocket...');
-    await Future.delayed(const Duration(seconds: 5));
+    if (_isReconnecting) return;
+    _isReconnecting = true;
+
+    print(
+        'Attempting to reconnect WebSocket... (Attempt ${_reconnectAttempts + 1}/$maxReconnectAttempts)');
+
+    if (_reconnectAttempts >= maxReconnectAttempts) {
+      print('Maximum reconnection attempts reached. Giving up.');
+      _isReconnecting = false;
+      return;
+    }
+
+    await Future.delayed(Duration(seconds: 5 * (_reconnectAttempts + 1)));
+
     if (!(_stompClient?.connected ?? false)) {
       try {
+        _reconnectAttempts++;
         await connectToWebSocket();
       } catch (e) {
         print('Reconnection failed: $e');
+        _isReconnecting = false;
       }
     }
   }
@@ -696,6 +417,8 @@ class ChatService {
   void _onConnect(StompFrame frame) {
     print('Connected to WebSocket');
     print('Connection headers: ${frame.headers}');
+    _reconnectAttempts = 0;
+    _isReconnecting = false;
 
     // Подписываемся на обновления чатов
     _subscriptions['chats'] = _stompClient!.subscribe(
@@ -1021,6 +744,160 @@ class ChatService {
     } catch (e) {
       print('Ошибка при получении участников чата:');
       print(e);
+      rethrow;
+    }
+  }
+
+  Future<Chat> getChatByMeetupId(int meetupId) async {
+    final token = await _authProvider.getToken();
+    if (token == null) throw Exception('Не авторизован');
+
+    try {
+      print('Получаем чат для встречи $meetupId...');
+      final response = await http.get(
+        Uri.parse('$baseUrl/chats/meetup/$meetupId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final chatJson = jsonDecode(response.body);
+        return Chat.fromJson(chatJson);
+      } else if (response.statusCode == 404) {
+        throw Exception('Чат для встречи не найден');
+      } else {
+        throw Exception('Ошибка получения чата: ${response.statusCode}');
+      }
+    } catch (e, stackTrace) {
+      print('Ошибка при получении чата для встречи:');
+      print(e);
+      print(stackTrace);
+      rethrow;
+    }
+  }
+
+  Future<List<ChatParticipantInfo>> getChatParticipantsInfo(int chatId) async {
+    final token = await _authProvider.getToken();
+    if (token == null) throw Exception('Не авторизован');
+
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/chats/$chatId/participants/info'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> participantsJson = jsonDecode(response.body);
+        return participantsJson
+            .map((json) => ChatParticipantInfo.fromJson(json))
+            .toList();
+      } else {
+        throw Exception(
+            'Ошибка получения информации об участниках: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Ошибка при получении информации об участниках:');
+      print(e);
+      rethrow;
+    }
+  }
+
+  Future<List<Chat>> getArchivedMeetups() async {
+    final token = await _authProvider.getToken();
+    if (token == null) throw Exception('Не авторизован');
+
+    final userId = await _authProvider.getUserId();
+    if (userId == null) throw Exception('Не авторизован');
+
+    try {
+      print('Получаем архивные встречи...');
+      final response = await http.get(
+        Uri.parse('$baseUrl/meetups/archived'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Ошибка загрузки архивных встреч: ${response.statusCode}');
+      }
+
+      final List<dynamic> meetupsJson = jsonDecode(response.body);
+      print('Получено архивных встреч: ${meetupsJson.length}');
+
+      // Детальное логирование для отладки архивных встреч
+      print('Содержимое архивных встреч (JSON):');
+      for (var i = 0; i < meetupsJson.length; i++) {
+        print('Архивная встреча #$i JSON: ${meetupsJson[i]}');
+
+        // Логирование участников
+        if (meetupsJson[i]['participants'] != null) {
+          print('Участники архивной встречи #$i:');
+          final participants = meetupsJson[i]['participants'] as List;
+          for (var j = 0; j < participants.length; j++) {
+            print('Участник #$j: ${participants[j]}');
+            if (participants[j]['user'] != null) {
+              print('- Пользователь: ${participants[j]['user']}');
+              print('- ID: ${participants[j]['user']['userId']}');
+              print('- Имя: ${participants[j]['user']['username']}');
+              print('- Аватар: ${participants[j]['user']['avatarUrl']}');
+            }
+            print('- Статус: ${participants[j]['status']}');
+          }
+        } else {
+          print('Участники архивной встречи #$i отсутствуют');
+        }
+      }
+
+      final chats = meetupsJson.map((json) {
+        // Преобразуем meetup в формат chat для совместимости
+        final Map<String, dynamic> chatJson = {
+          ...Map<String, dynamic>.from(json as Map),
+          'chatId': json['meetupId'],
+          // Принудительно устанавливаем lastMessageContent в null для архивных встреч
+          'lastMessageContent': null,
+        };
+        return Chat.fromJson(chatJson);
+      }).toList();
+
+      // Проверяем, что все встречи имеют статус "completed"
+      for (var chat in chats) {
+        if (chat.meetupStatus != MeetupStatus.completed) {
+          print(
+              'Внимание: встреча ${chat.chatId} имеет статус ${chat.meetupStatus}, а не completed');
+        }
+      }
+
+      print('Преобразовано архивных встреч: ${chats.length}');
+      for (var chat in chats) {
+        print('Архивная встреча: ${chat.name}');
+        print('- ID чата: ${chat.chatId}');
+        print('- ID встречи: ${chat.meetupId}');
+        print('- Тип: ${chat.type}');
+        print('- Время встречи: ${chat.scheduledTime}');
+        print('- Статус: ${chat.meetupStatus}');
+        print('- Организатор: ${chat.createdByName}');
+        print('- Участники: ${chat.participants.length}');
+        // Логирование участников после преобразования
+        for (var i = 0; i < chat.participants.length; i++) {
+          final participant = chat.participants[i];
+          print(
+              '- Участник #$i: ${participant.name} (ID: ${participant.userId})');
+        }
+      }
+
+      return chats;
+    } catch (e, stackTrace) {
+      print('Ошибка при получении архивных встреч:');
+      print(e);
+      print(stackTrace);
       rethrow;
     }
   }
