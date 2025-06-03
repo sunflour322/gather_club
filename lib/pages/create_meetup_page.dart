@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:gather_club/widgets/custom_notification.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:gather_club/pages/invite_friends_page.dart';
 import 'package:gather_club/meetup_service/meetup_service.dart';
@@ -240,7 +241,7 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: Theme.of(context).primaryColor,
+                          color: AppTheme.accentColor,
                           width: 2,
                         ),
                       ),
@@ -413,6 +414,7 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
+                      backgroundColor: AppTheme.accentColor,
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -456,6 +458,7 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
+                  backgroundColor: AppTheme.accentColor,
                 ),
                 child: _isLoading
                     ? const SizedBox(

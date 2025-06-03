@@ -7,6 +7,7 @@ class ChatParticipant {
   final DateTime joinedAt;
   final DateTime? leftAt;
   final String role;
+  final bool? isOnline;
 
   ChatParticipant({
     required this.participantId,
@@ -17,6 +18,7 @@ class ChatParticipant {
     required this.joinedAt,
     this.leftAt,
     required this.role,
+    this.isOnline,
   });
 
   factory ChatParticipant.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class ChatParticipant {
       joinedAt: DateTime.parse(json['joinedAt']),
       leftAt: json['leftAt'] != null ? DateTime.parse(json['leftAt']) : null,
       role: json['role'],
+      isOnline: json['isOnline'],
     );
   }
 
@@ -42,6 +45,7 @@ class ChatParticipant {
       'joinedAt': joinedAt.toIso8601String(),
       'leftAt': leftAt?.toIso8601String(),
       'role': role,
+      'isOnline': isOnline,
     };
   }
 

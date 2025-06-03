@@ -8,6 +8,7 @@ import '../services/chat_service.dart';
 import '../auth_service/auth_provider.dart';
 import '../widgets/participants_dialog.dart';
 import '../models/chat_participant_info.dart';
+import '../theme/app_theme.dart';
 
 class ChatDetailPage extends StatefulWidget {
   final Chat chat;
@@ -55,6 +56,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
 
   Future<void> _initWebSocket() async {
     try {
+      // Сначала подключаемся к WebSocket
       await _chatService.connectToWebSocket();
 
       // Для архивных встреч не подписываемся на сообщения через WebSocket
@@ -63,17 +65,63 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         return;
       }
 
-      await _chatService.subscribeToChat(
-        widget.chat.chatId,
-        onTyping: (userId) {
-          print('Пользователь $userId печатает...');
-          _handleTyping(userId);
-        },
-        onRead: (userId) {
-          print('Пользователь $userId прочитал сообщения');
-          _handleRead(userId);
-        },
-      );
+      // Добавляем задержку перед подпиской, чтобы убедиться, что WebSocket подключен
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        // Используем механизм повторных попыток для подписки
+        int retryCount = 0;
+        const maxRetries = 3;
+        bool subscribed = false;
+
+        while (!subscribed && retryCount < maxRetries && mounted) {
+          try {
+            await _chatService.subscribeToChat(
+              widget.chat.chatId,
+              onTyping: (userId) {
+                if (mounted) {
+                  print('Пользователь $userId печатает...');
+                  _handleTyping(userId);
+                }
+              },
+              onRead: (userId) {
+                if (mounted) {
+                  print('Пользователь $userId прочитал сообщения');
+                  _handleRead(userId);
+                }
+              },
+            );
+            subscribed = true;
+            print('Успешно подписались на чат ${widget.chat.chatId}');
+          } catch (e) {
+            retryCount++;
+            print('Ошибка при подписке на чат (попытка $retryCount): $e');
+
+            if (retryCount < maxRetries) {
+              // Ждем перед повторной попыткой
+              await Future.delayed(Duration(milliseconds: 300 * retryCount));
+
+              // Пытаемся переподключить WebSocket перед повторной попыткой
+              if (retryCount > 1) {
+                try {
+                  await _chatService.connectToWebSocket();
+                } catch (wsError) {
+                  print('Ошибка при переподключении WebSocket: $wsError');
+                }
+              }
+            }
+          }
+        }
+
+        if (!subscribed && mounted) {
+          // Если после всех попыток не удалось подписаться, показываем сообщение
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text(
+                    'Не удалось подключиться к чату. Сообщения могут отображаться некорректно.')),
+          );
+        }
+      }
     } catch (e) {
       print('Ошибка при инициализации WebSocket:');
       print(e);
@@ -138,7 +186,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
-    _chatService.unsubscribeFromChat(widget.chat.chatId);
+    try {
+      _chatService.unsubscribeFromChat(widget.chat.chatId);
+    } catch (e) {
+      print('Ошибка при отписке от чата ${widget.chat.chatId}: $e');
+    }
     super.dispose();
   }
 
@@ -167,7 +219,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                 padding: const EdgeInsets.only(right: 8),
                 child: CircleAvatar(
                   radius: 16,
-                  backgroundColor: Colors.grey[300],
+                  backgroundColor: AppTheme.accentColor.withOpacity(0.7),
                   child: Text(
                     message.senderName[0].toUpperCase(),
                     style: const TextStyle(color: Colors.white),
@@ -178,9 +230,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isCurrentUser
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey[300],
+                  color:
+                      isCurrentUser ? AppTheme.accentColor : Colors.grey[200],
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Column(
@@ -200,69 +251,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                         ),
                       ),
                     if (message.replyToId != null)
-                      FutureBuilder<List<ChatMessage>>(
-                        future:
-                            _chatService.getChatMessages(widget.chat.chatId),
-                        builder: (context, snapshot) {
-                          if (!snapshot.hasData) {
-                            return const SizedBox.shrink();
-                          }
-
-                          final replyToMessage = snapshot.data!.firstWhere(
-                            (m) => m.messageId == message.replyToId,
-                            orElse: () => ChatMessage(
-                              messageId: 0,
-                              chatId: widget.chat.chatId,
-                              senderId: 0,
-                              senderName: 'Неизвестно',
-                              content: 'Сообщение недоступно',
-                              sentAt: DateTime.now(),
-                              isSystem: true,
-                            ),
-                          );
-
-                          return Container(
-                            padding: const EdgeInsets.all(8),
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: BoxDecoration(
-                              color: isCurrentUser
-                                  ? Colors.white.withOpacity(0.2)
-                                  : Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  replyToMessage.senderName,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: isCurrentUser
-                                        ? Colors.white
-                                        : Colors.black,
-                                  ),
-                                ),
-                                Text(
-                                  replyToMessage.content,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isCurrentUser
-                                        ? Colors.white
-                                        : Colors.black54,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
+                      _buildReplyPreview(message.replyToId!, isCurrentUser),
                     Text(
                       message.content,
                       style: TextStyle(
-                        color: isCurrentUser ? Colors.white : Colors.black,
+                        color: isCurrentUser
+                            ? Colors.white
+                            : AppTheme.textPrimaryColor,
                       ),
                     ),
                     Row(
@@ -273,8 +268,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                           style: TextStyle(
                             fontSize: 10,
                             color: isCurrentUser
-                                ? Colors.white.withOpacity(0.7)
-                                : Colors.black54,
+                                ? Colors.white.withOpacity(0.9)
+                                : AppTheme.textSecondaryColor,
                           ),
                         ),
                         if (message.readAt != null)
@@ -284,8 +279,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                               Icons.done_all,
                               size: 12,
                               color: isCurrentUser
-                                  ? Colors.white.withOpacity(0.7)
-                                  : Colors.black54,
+                                  ? Colors.white.withOpacity(0.9)
+                                  : AppTheme.textSecondaryColor,
                             ),
                           ),
                       ],
@@ -296,6 +291,90 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildReplyPreview(int replyToId, bool isCurrentUser) {
+    // Сначала проверяем в имеющихся сообщениях
+    ChatMessage? replyToMessage;
+    for (var msg in _messages) {
+      if (msg.messageId == replyToId) {
+        replyToMessage = msg;
+        break;
+      }
+    }
+
+    // Если нашли сообщение, строим превью
+    if (replyToMessage != null) {
+      return Container(
+        padding: const EdgeInsets.all(8),
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: isCurrentUser
+              ? Colors.white.withOpacity(0.2)
+              : AppTheme.accentColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              replyToMessage.senderName,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: isCurrentUser ? Colors.white : AppTheme.textPrimaryColor,
+              ),
+            ),
+            Text(
+              replyToMessage.content,
+              style: TextStyle(
+                fontSize: 12,
+                color: isCurrentUser
+                    ? Colors.white.withOpacity(0.9)
+                    : AppTheme.textSecondaryColor,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Если не нашли в имеющихся сообщениях, показываем заглушку
+    return Container(
+      padding: const EdgeInsets.all(8),
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: isCurrentUser
+            ? Colors.white.withOpacity(0.2)
+            : AppTheme.accentColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Ответ на сообщение',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: isCurrentUser ? Colors.white : AppTheme.textPrimaryColor,
+            ),
+          ),
+          Text(
+            'Сообщение недоступно',
+            style: TextStyle(
+              fontSize: 12,
+              color: isCurrentUser
+                  ? Colors.white.withOpacity(0.9)
+                  : AppTheme.textSecondaryColor,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -494,9 +573,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         title: Text(widget.chat.name),
         actions: [
           if (widget.isArchived)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8.0),
-              child: Icon(Icons.archive, color: Colors.grey),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Icon(Icons.archive, color: AppTheme.textSecondaryColor),
             ),
           IconButton(
             icon: const Icon(Icons.group),
@@ -558,13 +637,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.grey[200],
+                      color: AppTheme.accentColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Печатает...',
                       style: TextStyle(
-                        color: Colors.grey,
+                        color: AppTheme.textSecondaryColor,
                         fontSize: 12,
                       ),
                     ),
@@ -575,7 +654,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           if (_replyTo != null && !widget.isArchived)
             Container(
               padding: const EdgeInsets.all(8),
-              color: Colors.grey[200],
+              color: AppTheme.accentColor.withOpacity(0.1),
               child: Row(
                 children: [
                   const Icon(Icons.reply, size: 16),
@@ -595,7 +674,10 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                           _replyTo!.content,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.textSecondaryColor,
+                          ),
                         ),
                       ],
                     ),
@@ -630,7 +712,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                   IconButton(
                     icon: const Icon(Icons.send),
                     onPressed: _sendMessage,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: AppTheme.accentColor,
                   ),
                 ],
               ),
@@ -639,12 +721,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              color: Colors.grey[200],
-              child: const Text(
+              color: AppTheme.accentColor.withOpacity(0.1),
+              child: Text(
                 'Эта встреча завершена. Отправка сообщений недоступна.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.grey,
+                  color: AppTheme.textSecondaryColor,
                   fontStyle: FontStyle.italic,
                 ),
               ),
@@ -666,7 +748,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           const Icon(
             Icons.archive_outlined,
             size: 64,
-            color: Colors.grey,
+            color: AppTheme.accentColor,
           ),
           const SizedBox(height: 16),
           Text(
@@ -676,12 +758,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           const SizedBox(height: 8),
           Text(
             'Состоялась ${widget.chat.scheduledTime != null ? _formatDateTime(widget.chat.scheduledTime!) : "ранее"}',
-            style: const TextStyle(color: Colors.grey),
+            style: TextStyle(color: AppTheme.textSecondaryColor),
           ),
           const SizedBox(height: 24),
           const Text(
             'Сообщения этой встречи недоступны',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: AppTheme.textSecondaryColor),
           ),
         ],
       ),

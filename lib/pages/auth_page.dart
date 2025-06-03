@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 
 class AuthPage extends StatefulWidget {
@@ -140,7 +141,7 @@ class _AuthPageState extends State<AuthPage> {
                 width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
+                    backgroundColor: AppTheme.accentColor,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(30),
                     ),
@@ -180,7 +181,7 @@ class _AuthPageState extends State<AuthPage> {
                 child: const Text(
                   'Зарегистрироваться',
                   style: TextStyle(
-                    color: Colors.blue,
+                    color: AppTheme.accentColor,
                     decoration: TextDecoration.underline,
                   ),
                 ),

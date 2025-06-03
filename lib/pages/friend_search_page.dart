@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gather_club/user_service/friend.dart';
 import 'package:gather_club/user_service/friend_service.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:gather_club/widgets/custom_notification.dart';
@@ -221,6 +222,9 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
           trailing: TextButton(
             onPressed: () => _sendFriendRequest(user['userId']),
             child: const Text('Добавить в друзья'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.accentColor,
+            ),
           ),
         );
       },
@@ -232,6 +236,8 @@ class _FriendSearchPageState extends State<FriendSearchPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Поиск друзей'),
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

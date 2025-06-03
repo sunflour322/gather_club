@@ -6,11 +6,13 @@ import 'package:gather_club/nav_service/nav_page.dart';
 import 'package:gather_club/nav_service/routes.dart';
 import 'package:gather_club/pages/auth_page.dart';
 import 'package:gather_club/pages/reg_page.dart';
+import 'package:gather_club/user_service/avatar_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:gather_club/pages/account_page.dart';
 import 'package:gather_club/pages/friend_search_page.dart';
 import 'package:gather_club/pages/create_meetup_page.dart';
 import 'package:gather_club/pages/chat_page.dart';
+import 'package:gather_club/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,13 +36,11 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AvatarProvider()),
       ],
       child: MaterialApp(
         title: 'Gather Club',
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-          visualDensity: VisualDensity.adaptivePlatformDensity,
-        ),
+        theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
         initialRoute: '/',
         routes: {

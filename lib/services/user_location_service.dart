@@ -12,6 +12,7 @@ class UserLocation {
   final bool isPublic;
   final String? userAvatar;
   final String? userName;
+  final bool? isOnline;
 
   UserLocation({
     required this.userId,
@@ -23,6 +24,7 @@ class UserLocation {
     required this.isPublic,
     this.userAvatar,
     this.userName,
+    this.isOnline,
   });
 
   factory UserLocation.fromJson(Map<String, dynamic> json) {
@@ -38,6 +40,7 @@ class UserLocation {
         isPublic: json['isPublic'] ?? false,
         userAvatar: json['userAvatar'],
         userName: json['userName'],
+        isOnline: json['isOnline'],
       );
     } catch (e) {
       print('Error parsing UserLocation JSON: $e');
@@ -169,6 +172,7 @@ class UserLocationService {
               isPublic: location.isPublic,
               userName: userJson['username'],
               userAvatar: userJson['avatarUrl'],
+              isOnline: userJson['isOnline'],
             ));
           }
         } catch (e) {

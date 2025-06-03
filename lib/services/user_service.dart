@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'dart:io';
 
@@ -18,7 +19,7 @@ class UserService {
 
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$baseUrl/$userId/avatar'),
+        Uri.parse('$baseUrl/current/avatar'),
       );
 
       request.headers.addAll({
@@ -26,8 +27,10 @@ class UserService {
         'Accept': '*/*',
       });
 
-      final mimeType = imageFile.path.split('.').last.toLowerCase();
-      final contentType = MediaType('image', mimeType);
+      final mimeType = lookupMimeType(imageFile.path);
+      final contentType = mimeType != null
+          ? MediaType.parse(mimeType)
+          : MediaType('image', 'jpeg');
 
       request.files.add(await http.MultipartFile.fromPath(
         'avatar',

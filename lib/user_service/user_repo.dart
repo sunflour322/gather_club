@@ -115,4 +115,56 @@ class UserRepository {
       return false;
     }
   }
+
+  Future<User?> setUserOnline() async {
+    try {
+      final token = await _authProvider.getToken();
+      if (token == null) return null;
+
+      final response = await _client.put(
+        Uri.parse('$_baseUrl/current/status/online'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> userJson = json.decode(response.body);
+        return User.fromJson(userJson);
+      } else {
+        print('Failed to set user online: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('Error setting user online: $e');
+      return null;
+    }
+  }
+
+  Future<User?> setUserOffline() async {
+    try {
+      final token = await _authProvider.getToken();
+      if (token == null) return null;
+
+      final response = await _client.put(
+        Uri.parse('$_baseUrl/current/status/offline'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> userJson = json.decode(response.body);
+        return User.fromJson(userJson);
+      } else {
+        print('Failed to set user offline: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('Error setting user offline: $e');
+      return null;
+    }
+  }
 }

@@ -43,26 +43,68 @@ class FriendInfoDialog extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundImage: friendLocation.userAvatar != null
-                      ? NetworkImage(friendLocation.userAvatar!)
-                      : null,
-                  child: friendLocation.userAvatar == null
-                      ? const Icon(Icons.person, size: 40)
-                      : null,
+                Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundImage: friendLocation.userAvatar != null
+                          ? NetworkImage(friendLocation.userAvatar!)
+                          : null,
+                      child: friendLocation.userAvatar == null
+                          ? const Icon(Icons.person, size: 40)
+                          : null,
+                    ),
+                    if (friendLocation.isOnline == true)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        friendLocation.userName ?? 'Друг',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            friendLocation.userName ?? 'Друг',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (friendLocation.isOnline == true)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text(
+                                'онлайн',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       Text(
                         'Был в сети: ${_formatTimestamp(friendLocation.timestamp)}',

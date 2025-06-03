@@ -13,6 +13,7 @@ class User {
   final String? resetToken;
   final DateTime? resetTokenExpires;
   final String? role;
+  final bool? isOnline;
 
   User(
       {required this.userId,
@@ -28,7 +29,8 @@ class User {
       this.verificationToken,
       this.resetToken,
       this.resetTokenExpires,
-      this.role});
+      this.role,
+      this.isOnline});
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
@@ -46,6 +48,7 @@ class User {
       resetToken: json['resetToken'],
       resetTokenExpires: json['resetTokenExpires'],
       role: json['role'],
+      isOnline: json['isOnline'],
     );
   }
 }

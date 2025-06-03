@@ -8,8 +8,10 @@ import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/services/user_custom_place_service.dart';
 import 'package:gather_club/place_serice/user_custom_place.dart';
 import 'package:gather_club/pages/Example.dart';
-import 'package:gather_club/navigation/navigation_provider.dart';
+import 'package:gather_club/nav_service/navigation_provider.dart';
 import 'package:gather_club/services/user_service.dart';
+import 'package:gather_club/theme/app_theme.dart';
+import 'package:gather_club/user_service/avatar_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -71,6 +73,14 @@ class _AccountPageState extends State<AccountPage> {
         throw Exception('Не удалось загрузить данные пользователя');
       }
 
+      final userData = Map<String, dynamic>.from(json.decode(response.body));
+
+      // Обновляем аватар в глобальном провайдере
+      if (userData['avatarUrl'] != null) {
+        Provider.of<AvatarProvider>(context, listen: false)
+            .setAvatarUrl(userData['avatarUrl']);
+      }
+
       // Загружаем друзей, запросы и пользовательские места параллельно
       final futures = await Future.wait([
         _friendService.getAllFriends(token),
@@ -81,7 +91,7 @@ class _AccountPageState extends State<AccountPage> {
 
       if (mounted) {
         setState(() {
-          _userData = Map<String, dynamic>.from(json.decode(response.body));
+          _userData = userData;
           _acceptedFriends = futures[0] as List<Friend>;
           _incomingRequests = futures[1] as List<Friend>;
           _outgoingRequests = futures[2] as List<Friend>;
@@ -188,11 +198,16 @@ class _AccountPageState extends State<AccountPage> {
       final imageFile = File(image.path);
       final newAvatarUrl = await _userService.updateAvatar(imageFile);
 
+      // Обновляем URL аватара в локальном состоянии
       setState(() {
         if (_userData != null) {
           _userData!['avatarUrl'] = newAvatarUrl;
         }
       });
+
+      // Обновляем URL аватара в глобальном провайдере
+      Provider.of<AvatarProvider>(context, listen: false)
+          .setAvatarUrl(newAvatarUrl);
 
       if (mounted) {
         CustomNotification.show(
@@ -217,7 +232,7 @@ class _AccountPageState extends State<AccountPage> {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.blue.shade700, Colors.blue.shade400],
+          colors: [AppTheme.accentColor, AppTheme.accentColor.withOpacity(0.7)],
         ),
       ),
       child: Column(
@@ -230,6 +245,20 @@ class _AccountPageState extends State<AccountPage> {
                 backgroundImage: _userData?['avatarUrl'] != null
                     ? NetworkImage(_userData!['avatarUrl'])
                     : const AssetImage('assets/logo.png') as ImageProvider,
+                onBackgroundImageError: (e, stackTrace) {
+                  print('Ошибка загрузки аватара: $e');
+                  // Если возникла ошибка загрузки аватара, сбрасываем URL
+                  if (mounted) {
+                    setState(() {
+                      if (_userData != null) {
+                        _userData!['avatarUrl'] = null;
+                      }
+                    });
+                    // Также обновляем глобальный провайдер
+                    Provider.of<AvatarProvider>(context, listen: false)
+                        .setAvatarUrl(null);
+                  }
+                },
               ),
               Positioned(
                 right: 0,
@@ -250,7 +279,7 @@ class _AccountPageState extends State<AccountPage> {
                   child: IconButton(
                     icon: const Icon(Icons.camera_alt),
                     onPressed: _updateAvatar,
-                    color: Colors.blue,
+                    color: AppTheme.accentColor,
                     iconSize: 20,
                     padding: const EdgeInsets.all(8),
                   ),
@@ -399,6 +428,9 @@ class _AccountPageState extends State<AccountPage> {
                     },
                     icon: const Icon(Icons.add_location_alt),
                     label: const Text('Добавить'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.accentColor,
+                    ),
                   ),
                 ],
               ),
@@ -445,6 +477,9 @@ class _AccountPageState extends State<AccountPage> {
                   },
                   icon: const Icon(Icons.add_location_alt),
                   label: const Text('Добавить'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.accentColor,
+                  ),
                 ),
               ],
             ),
@@ -474,12 +509,12 @@ class _AccountPageState extends State<AccountPage> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
+                          color: AppTheme.accentColor.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
                           Icons.place,
-                          color: Colors.blue,
+                          color: AppTheme.accentColor,
                           size: 24,
                         ),
                       ),
@@ -535,7 +570,7 @@ class _AccountPageState extends State<AccountPage> {
                           }
                         },
                         tooltip: 'Показать на карте',
-                        color: Colors.blue,
+                        color: AppTheme.accentColor,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                       ),
@@ -576,6 +611,9 @@ class _AccountPageState extends State<AccountPage> {
                         ? 'Друзья (${_acceptedFriends.length}) • ${_incomingRequests.length}'
                         : 'Друзья (${_acceptedFriends.length})',
                   ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.accentColor,
+                  ),
                 ),
               ],
             ),
@@ -602,7 +640,7 @@ class _AccountPageState extends State<AccountPage> {
           style: const TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Colors.blue,
+            color: AppTheme.accentColor,
           ),
         ),
         const SizedBox(height: 4),

@@ -3,6 +3,7 @@ import 'package:gather_club/user_service/friend.dart';
 import 'package:gather_club/user_service/friend_service.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:gather_club/widgets/custom_notification.dart';
+import 'package:gather_club/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 
@@ -97,9 +98,8 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isSelected
-                        ? Theme.of(context).primaryColor
-                        : Colors.grey[300]!,
+                    color:
+                        isSelected ? AppTheme.accentColor : Colors.grey[300]!,
                     width: 2,
                   ),
                 ),
@@ -128,7 +128,7 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
                   child: Container(
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
+                      color: AppTheme.accentColor,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

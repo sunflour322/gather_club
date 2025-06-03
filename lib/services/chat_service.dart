@@ -29,6 +29,8 @@ class ChatService {
   static const int maxReconnectAttempts = 3;
   int _reconnectAttempts = 0;
   bool _isReconnecting = false;
+  bool _isConnecting = false;
+  Completer<void>? _connectionCompleter;
 
   ChatService(this._authProvider);
 
@@ -66,12 +68,41 @@ class ChatService {
       final List<dynamic> meetupsJson = jsonDecode(response.body);
       print('Получено активных встреч: ${meetupsJson.length}');
 
+      // Выводим подробную информацию о полях в JSON
+      for (var i = 0; i < meetupsJson.length; i++) {
+        print('Встреча #$i: ${meetupsJson[i]['name']}');
+        print('- meetupId: ${meetupsJson[i]['meetupId']}');
+        print('- scheduledTime: ${meetupsJson[i]['scheduledTime']}');
+
+        // Проверяем наличие поля scheduledTime
+        if (meetupsJson[i]['scheduledTime'] == null) {
+          print('!!! scheduledTime отсутствует для встречи #$i');
+
+          // Проверяем другие возможные источники времени
+          if (meetupsJson[i]['meetup'] != null &&
+              meetupsJson[i]['meetup']['scheduledTime'] != null) {
+            print(
+                '- Найдено время в meetup.scheduledTime: ${meetupsJson[i]['meetup']['scheduledTime']}');
+          }
+          if (meetupsJson[i]['meetupScheduledTime'] != null) {
+            print(
+                '- Найдено время в meetupScheduledTime: ${meetupsJson[i]['meetupScheduledTime']}');
+          }
+        }
+      }
+
       final chats = meetupsJson.map((json) {
         // Преобразуем meetup в формат chat для совместимости
         final Map<String, dynamic> chatJson = {
           ...Map<String, dynamic>.from(json as Map),
           'chatId': json['meetupId'],
         };
+
+        // Явно обрабатываем scheduledTime, если он существует
+        if (json['scheduledTime'] != null) {
+          chatJson['scheduledTime'] = json['scheduledTime'];
+        }
+
         return Chat.fromJson(chatJson);
       }).toList();
 
@@ -80,6 +111,7 @@ class ChatService {
         print('Активная встреча: ${chat.name}');
         print('- ID чата: ${chat.chatId}');
         print('- ID встречи: ${chat.meetupId}');
+        print('- Время встречи: ${chat.scheduledTime}');
         print('- Тип: ${chat.type}');
         print('- Статус: ${chat.meetupStatus}');
       }
@@ -171,7 +203,7 @@ class ChatService {
       print(e);
       print('Stack trace:');
       print(stackTrace);
-      rethrow;
+      return []; // Возвращаем пустой список вместо исключения
     }
   }
 
@@ -344,47 +376,150 @@ class ChatService {
   // WebSocket методы
 
   Future<void> connectToWebSocket() async {
-    final token = await _authProvider.getToken();
-    if (token == null) throw Exception('Не авторизован');
+    // Если уже подключено, просто возвращаемся
+    if (_stompClient?.connected ?? false) {
+      print('WebSocket уже подключен');
+      return;
+    }
 
-    if (_stompClient?.connected ?? false) return;
+    // Если подключение в процессе, ждем его завершения
+    if (_isConnecting) {
+      print('Подключение к WebSocket уже выполняется, ожидаем...');
+      if (_connectionCompleter != null) {
+        try {
+          await _connectionCompleter!.future.timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              print('Тайм-аут ожидания подключения WebSocket');
+              _isConnecting = false;
+              _connectionCompleter = null;
+            },
+          );
+          // Если дождались, проверяем статус и возвращаемся если подключено
+          if (_stompClient?.connected ?? false) {
+            print('WebSocket подключен после ожидания');
+            return;
+          }
+        } catch (e) {
+          print('Ошибка при ожидании подключения: $e');
+        }
+      }
+    }
 
-    print('Connecting to WebSocket with token: $token');
-
-    _stompClient = StompClient(
-      config: StompConfig(
-        url: wsUrl,
-        onConnect: _onConnect,
-        onDisconnect: _onDisconnect,
-        onWebSocketError: (error) {
-          print('WebSocket error: $error');
-          _reconnectWebSocket();
-        },
-        onStompError: (error) {
-          print('STOMP error: ${error.body}');
-          _reconnectWebSocket();
-        },
-        stompConnectHeaders: {
-          'Authorization': 'Bearer $token',
-        },
-        webSocketConnectHeaders: {
-          'Authorization': 'Bearer $token',
-        },
-        reconnectDelay: const Duration(seconds: 5),
-      ),
-    );
+    // Устанавливаем блокировку и создаем новый Completer
+    _isConnecting = true;
+    _connectionCompleter = Completer<void>();
 
     try {
-      _stompClient!.activate();
-      print('WebSocket connection activated');
-      _reconnectAttempts = 0;
-      _isReconnecting = false;
-    } catch (e, stackTrace) {
-      print('Error activating WebSocket connection:');
-      print(e);
-      print(stackTrace);
-      _reconnectWebSocket();
+      final token = await _authProvider.getToken();
+      if (token == null) {
+        throw Exception('Не авторизован');
+      }
+
+      // Проверяем еще раз после получения токена
+      if (_stompClient?.connected ?? false) {
+        print('WebSocket уже подключен (проверка после получения токена)');
+        _connectionCompleter?.complete();
+        return;
+      }
+
+      print('Connecting to WebSocket with token: $token');
+
+      // Если есть существующий клиент, пытаемся деактивировать его
+      if (_stompClient != null) {
+        try {
+          _stompClient!.deactivate();
+          _stompClient = null;
+          print('Существующий WebSocket клиент деактивирован');
+        } catch (e) {
+          print('Ошибка при деактивации WebSocket клиента: $e');
+        }
+      }
+
+      _stompClient = StompClient(
+        config: StompConfig(
+          url: wsUrl,
+          onConnect: (frame) {
+            _onConnect(frame);
+            // Завершаем комплитер, когда подключение успешно установлено
+            if (!(_connectionCompleter?.isCompleted ?? true)) {
+              _connectionCompleter?.complete();
+            }
+          },
+          onDisconnect: (frame) {
+            _onDisconnect(frame);
+            // Если комплитер еще не завершен, завершаем его с ошибкой
+            if (!(_connectionCompleter?.isCompleted ?? true)) {
+              _connectionCompleter?.completeError('WebSocket отключен');
+            }
+          },
+          onWebSocketError: (error) {
+            print('WebSocket error: $error');
+            // Если комплитер еще не завершен, завершаем его с ошибкой
+            if (!(_connectionCompleter?.isCompleted ?? true)) {
+              _connectionCompleter?.completeError(error);
+            }
+            _reconnectWebSocket();
+          },
+          onStompError: (error) {
+            print('STOMP error: ${error.body}');
+            // Если комплитер еще не завершен, завершаем его с ошибкой
+            if (!(_connectionCompleter?.isCompleted ?? true)) {
+              _connectionCompleter
+                  ?.completeError('STOMP ошибка: ${error.body}');
+            }
+            _reconnectWebSocket();
+          },
+          stompConnectHeaders: {
+            'Authorization': 'Bearer $token',
+          },
+          webSocketConnectHeaders: {
+            'Authorization': 'Bearer $token',
+          },
+          reconnectDelay: const Duration(seconds: 5),
+        ),
+      );
+
+      try {
+        _stompClient!.activate();
+        print('WebSocket connection activated');
+        _reconnectAttempts = 0;
+        _isReconnecting = false;
+
+        // Ждем 2 секунды для установки соединения
+        await Future.delayed(const Duration(seconds: 2));
+
+        // Если комплитер еще не завершен и соединение не установлено,
+        // завершаем его с ошибкой
+        if (!(_connectionCompleter?.isCompleted ?? true) &&
+            !(_stompClient?.connected ?? false)) {
+          _connectionCompleter?.completeError('Тайм-аут подключения WebSocket');
+        }
+      } catch (e, stackTrace) {
+        print('Error activating WebSocket connection:');
+        print(e);
+        print(stackTrace);
+
+        // Если комплитер еще не завершен, завершаем его с ошибкой
+        if (!(_connectionCompleter?.isCompleted ?? true)) {
+          _connectionCompleter?.completeError(e);
+        }
+
+        _reconnectWebSocket();
+        rethrow;
+      }
+    } catch (e) {
+      print('Ошибка при подключении к WebSocket: $e');
+
+      // Если комплитер еще не завершен, завершаем его с ошибкой
+      if (!(_connectionCompleter?.isCompleted ?? true)) {
+        _connectionCompleter?.completeError(e);
+      }
+
       rethrow;
+    } finally {
+      // Снимаем блокировку после завершения
+      _isConnecting = false;
     }
   }
 
@@ -420,25 +555,33 @@ class ChatService {
     _reconnectAttempts = 0;
     _isReconnecting = false;
 
-    // Подписываемся на обновления чатов
-    _subscriptions['chats'] = _stompClient!.subscribe(
-      destination: '/topic/chats',
-      headers: {'Authorization': frame.headers['Authorization'] ?? ''},
-      callback: (frame) {
-        print('Received chat update: ${frame.body}');
-        if (frame.body != null) {
-          try {
-            final chatJson = jsonDecode(frame.body!);
-            final chat = Chat.fromJson(chatJson);
-            _chatUpdateController.add(chat);
-          } catch (e, stackTrace) {
-            print('Ошибка обработки обновления чата:');
-            print(e);
-            print(stackTrace);
-          }
-        }
-      },
-    );
+    try {
+      // Проверяем, не создана ли уже подписка на обновления чатов
+      if (!_subscriptions.containsKey('chats')) {
+        // Подписываемся на обновления чатов
+        _subscriptions['chats'] = _stompClient!.subscribe(
+          destination: '/topic/chats',
+          headers: {'Authorization': frame.headers['Authorization'] ?? ''},
+          callback: (frame) {
+            print('Received chat update: ${frame.body}');
+            if (frame.body != null) {
+              try {
+                final chatJson = jsonDecode(frame.body!);
+                final chat = Chat.fromJson(chatJson);
+                _chatUpdateController.add(chat);
+              } catch (e, stackTrace) {
+                print('Ошибка обработки обновления чата:');
+                print(e);
+                print(stackTrace);
+              }
+            }
+          },
+        );
+      }
+    } catch (e) {
+      print('Ошибка при подписке на обновления чатов: $e');
+      // Не выбрасываем исключение, чтобы не прерывать работу приложения
+    }
   }
 
   void _onDisconnect(StompFrame frame) {
@@ -473,6 +616,13 @@ class ChatService {
       'Authorization': 'Bearer $token',
     };
 
+    // Проверяем, есть ли уже подписка на этот чат
+    final messageKey = 'chat.$chatId';
+    if (_subscriptions.containsKey(messageKey)) {
+      print('Подписка на чат $chatId уже существует. Пропускаем.');
+      return;
+    }
+
     try {
       print('Подписка на сообщения чата $chatId');
 
@@ -485,7 +635,6 @@ class ChatService {
       _messageControllers[chatId]?.add(initialMessages);
 
       // Подписка на сообщения
-      final messageKey = 'chat.$chatId';
       _subscriptions[messageKey] = _stompClient!.subscribe(
         destination: '/topic/chat.$chatId',
         headers: headers,
@@ -496,10 +645,20 @@ class ChatService {
               final message = ChatMessage.fromJson(jsonDecode(frame.body!));
               print('Сообщение преобразовано: ${message.content}');
 
-              // Получаем текущие сообщения
+              // Безопасно получаем текущие сообщения
               getChatMessages(chatId).then((messages) {
-                // Отправляем обновленный список в стрим
-                _messageControllers[chatId]?.add(messages);
+                try {
+                  // Проверяем, что контроллер все еще существует и открыт
+                  if (_messageControllers.containsKey(chatId) &&
+                      !(_messageControllers[chatId]?.isClosed ?? true)) {
+                    // Отправляем обновленный список в стрим
+                    _messageControllers[chatId]?.add(messages);
+                  }
+                } catch (e) {
+                  print('Ошибка при обновлении сообщений в стриме: $e');
+                }
+              }).catchError((e) {
+                print('Ошибка при получении обновленных сообщений: $e');
               });
 
               // Вызываем колбэк, если он предоставлен
@@ -556,7 +715,8 @@ class ChatService {
       print('Ошибка при подписке на чат $chatId:');
       print(e);
       print(stackTrace);
-      rethrow;
+      // Не выбрасываем исключение, чтобы не прерывать выполнение
+      // просто логируем ошибку
     }
   }
 
@@ -567,11 +727,30 @@ class ChatService {
       'chat.$chatId.read',
     ];
 
-    for (final key in keys) {
-      if (_subscriptions.containsKey(key)) {
-        _subscriptions[key]?.call();
-        _subscriptions.remove(key);
+    try {
+      for (final key in keys) {
+        if (_subscriptions.containsKey(key)) {
+          try {
+            // Безопасно вызываем функцию отписки
+            _subscriptions[key]?.call();
+          } catch (e) {
+            print('Ошибка при отписке от $key: $e');
+          } finally {
+            // В любом случае удаляем ключ из словаря подписок
+            _subscriptions.remove(key);
+          }
+        }
       }
+
+      // Проверяем, существует ли контроллер сообщений для этого чата
+      if (_messageControllers.containsKey(chatId)) {
+        // Не закрываем контроллер, так как он может использоваться другими экземплярами страницы
+        // Просто удаляем ссылку на него из словаря
+        print('Удаляем контроллер сообщений для чата $chatId из словаря');
+        _messageControllers.remove(chatId);
+      }
+    } catch (e) {
+      print('Ошибка при отписке от чата $chatId: $e');
     }
   }
 
@@ -651,13 +830,29 @@ class ChatService {
 
   @override
   void dispose() {
-    _chatUpdateController.close();
-    // Закрываем все контроллеры сообщений
-    for (var controller in _messageControllers.values) {
-      controller.close();
+    // Безопасно закрываем контроллер обновлений чата
+    if (!_chatUpdateController.isClosed) {
+      _chatUpdateController.close();
+    }
+
+    // Безопасно закрываем все контроллеры сообщений
+    for (var chatId in _messageControllers.keys) {
+      try {
+        if (!(_messageControllers[chatId]?.isClosed ?? true)) {
+          _messageControllers[chatId]?.close();
+        }
+      } catch (e) {
+        print('Ошибка при закрытии контроллера сообщений для чата $chatId: $e');
+      }
     }
     _messageControllers.clear();
-    disconnectWebSocket();
+
+    // Отключаемся от WebSocket
+    try {
+      disconnectWebSocket();
+    } catch (e) {
+      print('Ошибка при отключении от WebSocket: $e');
+    }
   }
 
   Future<List<ChatMessage>> getChatHistory(int chatId,
@@ -764,7 +959,22 @@ class ChatService {
 
       if (response.statusCode == 200) {
         final chatJson = jsonDecode(response.body);
-        return Chat.fromJson(chatJson);
+
+        // Логируем содержимое JSON для отладки
+        print('JSON для чата $meetupId: $chatJson');
+        if (chatJson['meetup'] != null &&
+            chatJson['meetup']['scheduledTime'] != null) {
+          print(
+              'Найдено вложенное время встречи: ${chatJson['meetup']['scheduledTime']}');
+        }
+
+        final chat = Chat.fromJson(chatJson);
+        print('Созданный объект Chat для $meetupId:');
+        print('- scheduledTime: ${chat.scheduledTime}');
+        print('- name: ${chat.name}');
+        print('- lastMessageContent: ${chat.lastMessageContent}');
+
+        return chat;
       } else if (response.statusCode == 404) {
         throw Exception('Чат для встречи не найден');
       } else {

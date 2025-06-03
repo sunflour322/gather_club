@@ -168,27 +168,47 @@ class Chat {
           ? DateTime.parse(json['lastMessageAt'])
           : null;
 
-      // Пробуем получить время встречи из разных источников
-      print('Parsing scheduledTime from JSON:');
-      print('meetup: ${json['meetup']}');
-      print('scheduledTime in meetup: ${json['meetup']?['scheduledTime']}');
-      print('direct scheduledTime: ${json['scheduledTime']}');
-      print('meetupScheduledTime: ${json['meetupScheduledTime']}');
+      // Вывод всех ключей JSON для отладки
+      print('Ключи JSON: ${json.keys.toList().join(', ')}');
 
+      // Пробуем получить время встречи из разных источников
+      print('Подробный анализ scheduledTime в JSON:');
+
+      // Для активных встреч
       if (json['scheduledTime'] != null) {
-        // Для приглашений
+        print('- Найдено прямое поле scheduledTime: ${json['scheduledTime']}');
         scheduledTime = DateTime.parse(json['scheduledTime']);
-        print('Parsed scheduledTime from invitation: $scheduledTime');
-      } else if (json['meetupScheduledTime'] != null) {
+        print('- Преобразовано в DateTime: $scheduledTime');
+      }
+      // Для встреч, где время вложено в другие объекты
+      else if (json['meetupScheduledTime'] != null) {
+        print(
+            '- Найдено поле meetupScheduledTime: ${json['meetupScheduledTime']}');
         scheduledTime = DateTime.parse(json['meetupScheduledTime']);
-        print('Parsed scheduledTime from meetupScheduledTime: $scheduledTime');
-      } else if (json['meetup'] != null &&
+        print('- Преобразовано в DateTime: $scheduledTime');
+      }
+      // Проверяем поле в объекте meetup
+      else if (json['meetup'] != null &&
           json['meetup']['scheduledTime'] != null) {
+        print(
+            '- Найдено поле в meetup.scheduledTime: ${json['meetup']['scheduledTime']}');
         scheduledTime = DateTime.parse(json['meetup']['scheduledTime']);
-        print('Parsed scheduledTime from meetup: $scheduledTime');
+        print('- Преобразовано в DateTime: $scheduledTime');
+      }
+      // Для случая, когда нет прямого поля scheduledTime, но есть дата в другом формате
+      else if (json['date'] != null) {
+        print('- Найдено поле date: ${json['date']}');
+        scheduledTime = DateTime.parse(json['date']);
+        print('- Преобразовано в DateTime: $scheduledTime');
+      }
+      // Проверяем поле time
+      else if (json['time'] != null) {
+        print('- Найдено поле time: ${json['time']}');
+        scheduledTime = DateTime.parse(json['time']);
+        print('- Преобразовано в DateTime: $scheduledTime');
       } else {
         scheduledTime = null;
-        print('No scheduledTime found in JSON');
+        print('- Не найдено ни одного поля с временем встречи');
       }
 
       // Получаем время создания
@@ -201,8 +221,9 @@ class Chat {
       } else {
         createdAt = DateTime.now();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Warning: Failed to parse dates: $e');
+      print(stackTrace);
       createdAt = DateTime.now();
     }
 

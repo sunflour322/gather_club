@@ -67,7 +67,17 @@ class _ChatPageState extends State<ChatPage>
         try {
           // Пытаемся получить информацию о чате для встречи
           final chat = await _chatService.getChatByMeetupId(meetup.meetupId!);
-          chatsWithMessages.add(chat);
+
+          // Если у чата нет scheduledTime, но он есть у встречи, используем его
+          if (chat.scheduledTime == null && meetup.scheduledTime != null) {
+            print(
+                'Копируем scheduledTime из meetup в chat: ${meetup.scheduledTime}');
+            final updatedChat =
+                chat.copyWith(scheduledTime: meetup.scheduledTime);
+            chatsWithMessages.add(updatedChat);
+          } else {
+            chatsWithMessages.add(chat);
+          }
 
           // Загружаем информацию об участниках
           final participants =
@@ -650,6 +660,9 @@ class _ChatPageState extends State<ChatPage>
             Tab(text: 'Активные'),
             Tab(text: 'Приглашения'),
           ],
+          labelColor: Theme.of(context).colorScheme.primary,
+          unselectedLabelColor: Colors.black,
+          indicatorColor: Theme.of(context).colorScheme.primary,
         ),
       ),
       body: _isLoading

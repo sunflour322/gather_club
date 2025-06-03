@@ -6,6 +6,7 @@ class ChatParticipantInfo {
   final String? avatarUrl;
   final String role;
   final DateTime joinedAt;
+  final bool? isOnline;
 
   ChatParticipantInfo({
     required this.userId,
@@ -13,6 +14,7 @@ class ChatParticipantInfo {
     this.avatarUrl,
     required this.role,
     required this.joinedAt,
+    this.isOnline,
   });
 
   factory ChatParticipantInfo.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,7 @@ class ChatParticipantInfo {
         role: json['status'] ?? 'participant',
         joinedAt: DateTime.parse(
             json['invitedAt'] ?? DateTime.now().toIso8601String()),
+        isOnline: user['isOnline'],
       );
     }
 
@@ -36,6 +39,7 @@ class ChatParticipantInfo {
       avatarUrl: json['avatarUrl'],
       role: json['role'] ?? 'participant',
       joinedAt: DateTime.parse(json['joinedAt']),
+      isOnline: json['isOnline'],
     );
   }
 

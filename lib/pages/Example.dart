@@ -10,6 +10,7 @@ import 'package:gather_club/place_serice/place.dart';
 import 'package:gather_club/place_serice/place_image_service.dart';
 import 'package:gather_club/widgets/place_info_dialog.dart';
 import 'package:gather_club/place_serice/place_repository.dart';
+import 'package:gather_club/theme/app_theme.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
@@ -1147,7 +1148,7 @@ class _ExamplePageState extends State<ExamplePage>
       body: Stack(
         children: [
           YandexMap(
-            nightModeEnabled: true,
+            nightModeEnabled: false,
             onMapCreated: _onMapCreated,
             onMapLongTap: (Point point) {
               _handleMapLongPress(point);
@@ -1260,6 +1261,7 @@ class _ExamplePageState extends State<ExamplePage>
       floatingActionButton: FloatingActionButton(
         heroTag: 'location',
         onPressed: _hasLocationPermission ? _moveToCurrentLocation : null,
+        backgroundColor: AppTheme.accentColor,
         child: const Icon(Icons.my_location),
       ),
     );

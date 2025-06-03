@@ -45,19 +45,61 @@ class ParticipantsDialog extends StatelessWidget {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage: participant.avatarUrl != null
-                            ? NetworkImage(participant.avatarUrl!)
-                            : null,
-                        child: participant.avatarUrl == null
-                            ? Text(participant.username[0].toUpperCase())
-                            : null,
+                      leading: Stack(
+                        children: [
+                          CircleAvatar(
+                            backgroundImage: participant.avatarUrl != null
+                                ? NetworkImage(participant.avatarUrl!)
+                                : null,
+                            child: participant.avatarUrl == null
+                                ? Text(participant.username[0].toUpperCase())
+                                : null,
+                          ),
+                          if (participant.isOnline == true)
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                      title: Text(
-                        participant.username,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      title: Row(
+                        children: [
+                          Text(
+                            participant.username,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (participant.isOnline == true)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text(
+                                'онлайн',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
