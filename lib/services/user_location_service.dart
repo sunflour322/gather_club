@@ -30,13 +30,19 @@ class UserLocation {
   factory UserLocation.fromJson(Map<String, dynamic> json) {
     print('Creating UserLocation from JSON: $json');
     try {
+      // Простой парсинг timestamp без дополнительной обработки
+      final String rawTimestamp = json['timestamp'];
+      print('Raw timestamp from server: $rawTimestamp');
+      final DateTime parsedTimestamp = DateTime.parse(rawTimestamp);
+      print('Parsed timestamp: $parsedTimestamp');
+
       return UserLocation(
         userId: json['userId'],
         latitude: json['latitude']?.toDouble() ?? 0.0,
         longitude: json['longitude']?.toDouble() ?? 0.0,
         accuracy: json['accuracy']?.toDouble(),
         altitude: json['altitude']?.toDouble(),
-        timestamp: DateTime.parse(json['timestamp']),
+        timestamp: parsedTimestamp,
         isPublic: json['isPublic'] ?? false,
         userAvatar: json['userAvatar'],
         userName: json['userName'],

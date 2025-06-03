@@ -51,15 +51,141 @@ class ExamplePage extends StatefulWidget {
   State<ExamplePage> createState() => _ExamplePageState();
 }
 
+class PlaceCategory {
+  final int id;
+  final String name;
+  final String? iconUrl;
+  final bool isActive;
+  bool isSelected;
+
+  PlaceCategory({
+    required this.id,
+    required this.name,
+    this.iconUrl,
+    required this.isActive,
+    this.isSelected = false,
+  });
+
+  factory PlaceCategory.fromJson(Map<String, dynamic> json) {
+    return PlaceCategory(
+      id: json['categoryId'],
+      name: json['name'],
+      iconUrl: json['iconUrl'],
+      isActive: json['isActive'] ?? true,
+      isSelected: false,
+    );
+  }
+
+  // Создает иконку на основе URL или использует дефолтную
+  IconData get icon {
+    // Здесь можно добавить логику для маппинга URL на иконки
+    // Пока используем дефолтные иконки
+    switch (id) {
+      case 0:
+        return Icons.category;
+      case 1:
+        return Icons.local_cafe;
+      case 2:
+        return Icons.restaurant;
+      case 3:
+        return Icons.park;
+      case 4:
+        return Icons.museum;
+      case 5:
+        return Icons.movie;
+      case 6:
+        return Icons.sports_soccer;
+      case 7:
+        return Icons.shopping_bag;
+      case 8:
+        return Icons.hotel;
+      default:
+        return Icons.place;
+    }
+  }
+}
+
+class PlaceCategoryService {
+  final AuthProvider _authProvider;
+  final String _baseUrl = 'http://212.67.8.92:8080';
+
+  PlaceCategoryService(this._authProvider);
+
+  // Получение всех категорий мест
+  Future<List<PlaceCategory>> getAllCategories() async {
+    try {
+      final token = await _authProvider.getToken();
+      if (token == null) throw Exception('Не авторизован');
+
+      print('Requesting categories from: $_baseUrl/place-categories');
+      final response = await http.get(
+        Uri.parse('$_baseUrl/place-categories'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      print('Categories response status: ${response.statusCode}');
+      if (response.statusCode == 200) {
+        final List<dynamic> categoriesJson = json.decode(response.body);
+        print(
+            'Raw categories response: ${response.body.substring(0, min(200, response.body.length))}...');
+        print('Parsed ${categoriesJson.length} categories from response');
+
+        // Создаем категорию "Все" и добавляем ее в начало списка
+        final List<PlaceCategory> categories = [
+          PlaceCategory(
+              id: 0,
+              name: 'Все',
+              iconUrl: null,
+              isActive: true,
+              isSelected: true)
+        ];
+
+        // Добавляем остальные категории из ответа сервера
+        categories.addAll(categoriesJson
+            .map((json) {
+              print('Processing category: $json');
+              return PlaceCategory.fromJson(json);
+            })
+            .where((category) => category.isActive) // Только активные категории
+            .toList());
+
+        print(
+            'Final categories list: ${categories.map((c) => '${c.id}:${c.name}').join(', ')}');
+        return categories;
+      } else {
+        print('Error response body: ${response.body}');
+        throw Exception('Ошибка загрузки категорий: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching place categories: $e');
+      // В случае ошибки возвращаем дефолтные категории
+      return [
+        PlaceCategory(
+            id: 0,
+            name: 'Все',
+            iconUrl: null,
+            isActive: true,
+            isSelected: true),
+        PlaceCategory(id: 1, name: 'Кафе', iconUrl: null, isActive: true),
+        PlaceCategory(id: 2, name: 'Рестораны', iconUrl: null, isActive: true),
+        PlaceCategory(id: 3, name: 'Парки', iconUrl: null, isActive: true),
+      ];
+    }
+  }
+}
+
 class _ExamplePageState extends State<ExamplePage>
     with AutomaticKeepAliveClientMixin {
   final LocationService _locationService = LocationService();
   late UserLocationService _userLocationService;
+  late PlaceCategoryService _categoryService;
   YandexMapController? _mapController;
   final List<MapObject> _mapObjects = [];
   bool _isLoading = true;
   bool _hasLocationPermission = false;
-  List<Place> _places = [];
   AuthService _authService = AuthService();
   PolylineMapObject? _routePolyline;
   String? _routeDuration;
@@ -77,6 +203,23 @@ class _ExamplePageState extends State<ExamplePage>
   Timer? _friendsLocationUpdateTimer;
   bool _disposed = false;
   UserLocation? _selectedFriend;
+
+  // Категории мест
+  List<PlaceCategory> _categories = [
+    PlaceCategory(
+        id: 0, name: 'Все', iconUrl: null, isActive: true, isSelected: true),
+  ];
+  bool _isLoadingCategories = false;
+
+  // Активные категории (для фильтрации)
+  Set<int> _selectedCategoryIds = {0}; // По умолчанию выбрана категория "Все"
+
+  // Все места, загруженные с сервера
+  List<Place> _allPlaces = [];
+  // Отфильтрованные места для отображения на карте
+  List<Place> _places = [];
+  bool _isLoadingPlaces = false;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -86,8 +229,10 @@ class _ExamplePageState extends State<ExamplePage>
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _userPlaceService = UserCustomPlaceService(authProvider);
     _userLocationService = UserLocationService(authProvider);
+    _categoryService = PlaceCategoryService(authProvider);
     _initLocation();
-    _fetchPlaces();
+    _fetchCategories();
+    _fetchAllPlaces(); // Загружаем все места один раз
     _fetchUserPlaces();
     _startLocationUpdates();
     _friendsLocationUpdateTimer =
@@ -131,8 +276,11 @@ class _ExamplePageState extends State<ExamplePage>
     }
   }
 
-  Future<void> _fetchPlaces() async {
+  // Загрузка всех мест с сервера
+  Future<void> _fetchAllPlaces() async {
     if (_disposed) return;
+
+    _safeSetState(() => _isLoadingPlaces = true);
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final token = await authProvider.getToken();
@@ -140,9 +288,14 @@ class _ExamplePageState extends State<ExamplePage>
     final location = await _locationService.getCurrentLocation();
 
     try {
+      // Базовый URL для запроса всех мест без фильтрации по категориям
+      String url =
+          'http://212.67.8.92:8080/places/nearby?lat=${location.lat}&lng=${location.long}&radiusKm=10';
+
+      print('Fetching all places with URL: $url');
+
       final response = await http.get(
-        Uri.parse(
-            'http://212.67.8.92:8080/places/nearby?lat=${location.lat}&lng=${location.long}&radiusKm=10'),
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -150,17 +303,118 @@ class _ExamplePageState extends State<ExamplePage>
       );
 
       if (response.statusCode == 200 && !_disposed) {
-        final List<dynamic> placesJson = json.decode(response.body);
-        _safeSetState(() {
-          _places = placesJson.map((json) => Place.fromJson(json)).toList();
-          _addPlacesToMap();
-        });
+        try {
+          final List<dynamic> placesJson = json.decode(response.body);
+          print('Received ${placesJson.length} places from server');
+
+          // Вывод первого места для отладки
+          if (placesJson.isNotEmpty) {
+            print('First place sample: ${placesJson[0]}');
+          }
+
+          _safeSetState(() {
+            _allPlaces =
+                placesJson.map((json) => Place.fromJson(json)).toList();
+            print('Loaded ${_allPlaces.length} places from server');
+
+            // Применяем текущий фильтр категорий
+            _filterPlacesByCategories();
+          });
+        } catch (parseError) {
+          print('Error parsing places response: $parseError');
+          print(
+              'Response body: ${response.body.substring(0, min(200, response.body.length))}...');
+        }
       } else {
         print('Failed to load places: ${response.statusCode}');
+        print(
+            'Response body: ${response.body.substring(0, min(200, response.body.length))}...');
       }
     } catch (e) {
       print('Error fetching places: $e');
+    } finally {
+      _safeSetState(() => _isLoadingPlaces = false);
     }
+  }
+
+  // Фильтрация мест по выбранным категориям (локально)
+  void _filterPlacesByCategories() {
+    if (_disposed) return;
+
+    print('Filtering places by categories: $_selectedCategoryIds');
+    print('Total places before filtering: ${_allPlaces.length}');
+
+    // Вывод информации о всех местах для отладки
+    for (var place in _allPlaces) {
+      print(
+          'Place ${place.placeId} (${place.name}): category=${place.category}, categoryId=${place.categoryId}');
+    }
+
+    // Сначала выполняем фильтрацию без setState
+    List<Place> filteredPlaces;
+    if (_selectedCategoryIds.contains(0)) {
+      // Если выбрана категория "Все", показываем все места
+      filteredPlaces = List.from(_allPlaces);
+      print(
+          'Showing all ${filteredPlaces.length} places (category "All" selected)');
+    } else {
+      // Фильтруем места по выбранным категориям
+      filteredPlaces = _allPlaces.where((place) {
+        // Проверяем, соответствует ли место хотя бы одной из выбранных категорий
+        if (place.category == null) {
+          print(
+              'Place ${place.placeId} (${place.name}) has null category - skipping');
+          return false;
+        }
+
+        // Получаем ID категории места
+        int? placeCategoryId = place.categoryId;
+        print(
+            'Place ${place.placeId} (${place.name}): categoryId=${placeCategoryId}, category=${place.category}');
+
+        // Проверяем по имени категории и ID
+        for (var categoryId in _selectedCategoryIds) {
+          var category = _categories.firstWhere((c) => c.id == categoryId,
+              orElse: () => PlaceCategory(id: -1, name: '', isActive: false));
+
+          // Проверка по ID категории
+          if (placeCategoryId != null && placeCategoryId == categoryId) {
+            print(
+                'Place ${place.placeId} MATCHES by categoryId=${placeCategoryId} with selected categoryId=${categoryId}');
+            return true;
+          }
+
+          // Проверка по имени категории
+          if (category.id != -1 &&
+              place.category!.toLowerCase() == category.name.toLowerCase()) {
+            print(
+                'Place ${place.placeId} MATCHES by category name: ${place.category} with selected category: ${category.name}');
+            return true;
+          }
+        }
+
+        print(
+            'Place ${place.placeId} (${place.name}) does NOT match any selected category');
+        return false;
+      }).toList();
+
+      print(
+          'Filtered to ${filteredPlaces.length} places matching categories: ${_selectedCategoryIds.join(", ")}');
+    }
+
+    // Затем обновляем состояние и перерисовываем карту
+    _safeSetState(() {
+      _places = filteredPlaces;
+
+      // Сначала удаляем все существующие метки мест
+      _mapObjects.removeWhere((obj) =>
+          obj.mapId.value.startsWith('place_') &&
+          !obj.mapId.value.startsWith('place_user_'));
+      print('Removed existing place markers from map');
+    });
+
+    // Добавляем новые метки мест после обновления состояния
+    _addPlacesToMap();
   }
 
   Future<void> _fetchUserPlaces() async {
@@ -189,6 +443,17 @@ class _ExamplePageState extends State<ExamplePage>
       final placemarks = <PlacemarkMapObject>[];
       final _authProvider = Provider.of<AuthProvider>(context, listen: false);
 
+      print('Adding ${_places.length} places to map');
+
+      // Для отладки выведем категории мест
+      if (_places.isNotEmpty) {
+        print('Places categories:');
+        for (final place in _places) {
+          print(
+              'Place ${place.placeId} (${place.name}): category=${place.category}, categoryId=${place.categoryId}');
+        }
+      }
+
       for (final place in _places) {
         if (_disposed) return;
 
@@ -198,6 +463,8 @@ class _ExamplePageState extends State<ExamplePage>
 
         try {
           placeImages = await placeRepository.fetchPlaceImages(place.placeId);
+          print(
+              'Fetched ${placeImages.length} images for place ${place.placeId} (${place.name})');
         } catch (e) {
           print('Error fetching images for place ${place.placeId}: $e');
           continue;
@@ -233,7 +500,8 @@ class _ExamplePageState extends State<ExamplePage>
       }
 
       if (!_disposed) {
-        setState(() {
+        _safeSetState(() {
+          print('Adding ${placemarks.length} place markers to map');
           _mapObjects.addAll(placemarks);
         });
       }
@@ -678,7 +946,7 @@ class _ExamplePageState extends State<ExamplePage>
       location = await _locationService.getCurrentLocation();
       await _updateCamera(location!.lat, location!.long);
       _addUserPlacemark(location!.lat, location!.long);
-      await _fetchPlaces();
+      await _fetchAllPlaces();
     } catch (e) {
       print('Error moving to current location: $e');
       await _moveToDefaultLocation();
@@ -1159,6 +1427,13 @@ class _ExamplePageState extends State<ExamplePage>
           ),
           if (_isLoading || _isRouteCalculating)
             const Center(child: CircularProgressIndicator()),
+          // Слайдер категорий в верхней части экрана
+          Positioned(
+            top: MediaQuery.of(context).padding.top,
+            left: 0,
+            right: 0,
+            child: _buildCategoriesSlider(),
+          ),
           // Панель информации о пешеходном маршруте
           if (_routeDuration != null && _routeDistance != null)
             Positioned(
@@ -1265,5 +1540,238 @@ class _ExamplePageState extends State<ExamplePage>
         child: const Icon(Icons.my_location),
       ),
     );
+  }
+
+  // Обработка нажатия на категорию
+  void _toggleCategory(int categoryId) {
+    print(
+        'Toggle category: $categoryId, current selected: $_selectedCategoryIds');
+
+    // Сначала обновляем выбранные категории
+    setState(() {
+      // Если нажата категория "Все"
+      if (categoryId == 0) {
+        // Если "Все" уже выбрана, ничего не делаем
+        if (_selectedCategoryIds.contains(0)) {
+          print('Category "All" already selected, no changes');
+          return;
+        }
+        // Иначе выбираем только "Все" и сбрасываем остальные
+        _selectedCategoryIds.clear();
+        _selectedCategoryIds.add(0);
+        print('Selected "All" category, cleared other selections');
+
+        // Обновляем состояние категорий
+        for (var category in _categories) {
+          category.isSelected = category.id == 0;
+        }
+      } else {
+        // Если нажата любая другая категория
+
+        // Если категория уже выбрана, снимаем выбор
+        if (_selectedCategoryIds.contains(categoryId)) {
+          _selectedCategoryIds.remove(categoryId);
+          _categories.firstWhere((c) => c.id == categoryId).isSelected = false;
+          print('Deselected category $categoryId');
+
+          // Если не осталось выбранных категорий, выбираем "Все"
+          if (_selectedCategoryIds.isEmpty) {
+            _selectedCategoryIds.add(0);
+            _categories.firstWhere((c) => c.id == 0).isSelected = true;
+            print('No categories selected, defaulting to "All"');
+          }
+        } else {
+          // Если категория не выбрана, добавляем её
+
+          // Если была выбрана категория "Все", снимаем с неё выбор
+          if (_selectedCategoryIds.contains(0)) {
+            _selectedCategoryIds.remove(0);
+            _categories.firstWhere((c) => c.id == 0).isSelected = false;
+            print('Removed "All" category selection');
+          }
+
+          // Добавляем новую категорию
+          _selectedCategoryIds.add(categoryId);
+          _categories.firstWhere((c) => c.id == categoryId).isSelected = true;
+          print('Selected category $categoryId');
+        }
+      }
+    });
+
+    print('Final selected categories: $_selectedCategoryIds');
+
+    // Затем применяем фильтр категорий к уже загруженным местам
+    // Вызываем вне setState для предотвращения вложенных setState
+    _filterPlacesByCategories();
+  }
+
+  // Обновление отображения мест на карте в соответствии с выбранными категориями
+  void _updatePlacesOnMap() {
+    print(
+        'Обновление мест на карте для категорий: ${_selectedCategoryIds.join(", ")}');
+
+    // Применяем фильтр категорий к уже загруженным местам
+    _filterPlacesByCategories();
+  }
+
+  // Виджет для отображения категорий в горизонтальном списке
+  Widget _buildCategoriesSlider() {
+    return Container(
+      height: 60,
+      margin: const EdgeInsets.only(top: 8, left: 8, right: 8),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: _isLoadingCategories
+          ? Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.8),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Text('Загрузка категорий...'),
+                  ],
+                ),
+              ),
+            )
+          : ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              itemCount: _categories.length,
+              itemBuilder: (context, index) {
+                final category = _categories[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: GestureDetector(
+                    onTap: () => _toggleCategory(category.id),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: category.isSelected
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.white.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: category.isSelected
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.grey[300]!,
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            category.icon,
+                            size: 18,
+                            color: category.isSelected
+                                ? Colors.white
+                                : Colors.grey[700],
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            category.name,
+                            style: TextStyle(
+                              color: category.isSelected
+                                  ? Colors.white
+                                  : Colors.grey[800],
+                              fontWeight: category.isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  // Загрузка категорий мест с сервера
+  Future<void> _fetchCategories() async {
+    if (_disposed) return;
+
+    setState(() => _isLoadingCategories = true);
+
+    try {
+      print('Fetching place categories from server...');
+      final categories = await _categoryService.getAllCategories();
+      print('Received ${categories.length} categories from server');
+
+      // Выводим полученные категории для отладки
+      for (var category in categories) {
+        print(
+            'Category: id=${category.id}, name=${category.name}, isActive=${category.isActive}, isSelected=${category.isSelected}');
+      }
+
+      if (!_disposed) {
+        setState(() {
+          _categories = categories;
+          _isLoadingCategories = false;
+
+          // Убедимся, что категория "Все" выбрана по умолчанию
+          if (_categories.isNotEmpty && _categories[0].id == 0) {
+            _categories[0].isSelected = true;
+            _selectedCategoryIds = {0};
+          }
+
+          print('Categories loaded and set, selected: $_selectedCategoryIds');
+        });
+      }
+    } catch (e) {
+      print('Error fetching categories: $e');
+      if (!_disposed) {
+        setState(() => _isLoadingCategories = false);
+
+        // В случае ошибки устанавливаем базовые категории
+        _categories = [
+          PlaceCategory(
+              id: 0,
+              name: 'Все',
+              iconUrl: null,
+              isActive: true,
+              isSelected: true),
+          PlaceCategory(id: 1, name: 'Кафе', iconUrl: null, isActive: true),
+          PlaceCategory(
+              id: 2, name: 'Рестораны', iconUrl: null, isActive: true),
+          PlaceCategory(id: 3, name: 'Парки', iconUrl: null, isActive: true),
+        ];
+        _selectedCategoryIds = {0};
+        print('Set default categories due to error');
+      }
+    }
+  }
+
+  // Метод для обновления мест при изменении местоположения
+  Future<void> _refreshPlaces() async {
+    if (_disposed) return;
+    await _fetchAllPlaces();
   }
 }

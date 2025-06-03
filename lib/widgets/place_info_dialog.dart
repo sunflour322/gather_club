@@ -888,17 +888,19 @@ class _PlaceContentState extends State<_PlaceContent>
                 ),
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.blue[100],
-                borderRadius: BorderRadius.circular(12),
+            if (widget.place.category != null &&
+                widget.place.category!.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  widget.place.category!,
+                  style: const TextStyle(color: Colors.blue),
+                ),
               ),
-              child: Text(
-                widget.place.category ?? 'Категория',
-                style: const TextStyle(color: Colors.blue),
-              ),
-            ),
           ],
         ),
         const SizedBox(height: 16),

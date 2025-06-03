@@ -6,6 +6,7 @@ class Place {
   final double longitude;
   final String? imageUrl;
   final String? category;
+  final int? categoryId;
   final String? workingHours;
   final String? phone;
   final String? address;
@@ -19,6 +20,7 @@ class Place {
     required this.longitude,
     this.imageUrl,
     this.category,
+    this.categoryId,
     this.workingHours,
     this.phone,
     this.address,
@@ -26,6 +28,25 @@ class Place {
   });
 
   factory Place.fromJson(Map<String, dynamic> json) {
+    // Обработка категории
+    String? categoryName;
+    int? categoryId;
+
+    if (json['category'] != null && json['category'] is Map<String, dynamic>) {
+      // Если категория - это объект с полями
+      final categoryObj = json['category'] as Map<String, dynamic>;
+      categoryName = categoryObj['name'];
+      categoryId = categoryObj['categoryId'];
+    } else {
+      // Если категория - это строка
+      categoryName = json['category'];
+    }
+
+    // Если categoryId передан напрямую
+    if (json['categoryId'] != null) {
+      categoryId = json['categoryId'];
+    }
+
     return Place(
       placeId: json['placeId'],
       name: json['name'],
@@ -33,7 +54,8 @@ class Place {
       latitude: json['latitude'],
       longitude: json['longitude'],
       imageUrl: json['imageUrl'],
-      category: json['category'],
+      category: categoryName,
+      categoryId: categoryId,
       workingHours: json['workingHours'],
       phone: json['phone'],
       address: json['address'],

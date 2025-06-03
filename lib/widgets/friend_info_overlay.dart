@@ -18,8 +18,17 @@ class FriendInfoOverlay extends StatelessWidget {
   });
 
   String _formatTimestamp(DateTime timestamp) {
+    // Корректируем timestamp на 3 часа (предполагаем, что это разница между UTC и местным временем)
+    final adjustedTimestamp = timestamp.add(const Duration(hours: 3));
     final now = DateTime.now();
-    final difference = now.difference(timestamp);
+    final difference = now.difference(adjustedTimestamp);
+
+    print('Форматирование времени в friend_info_overlay.dart:');
+    print('Текущее время: $now');
+    print('Исходный timestamp: $timestamp');
+    print('Скорректированный timestamp: $adjustedTimestamp');
+    print('Разница в минутах: ${difference.inMinutes}');
+    print('Разница в часах: ${difference.inHours}');
 
     if (difference.inMinutes < 1) {
       return 'только что';
@@ -30,7 +39,7 @@ class FriendInfoOverlay extends StatelessWidget {
     } else if (difference.inDays < 7) {
       return '${difference.inDays} дн назад';
     } else {
-      return '${timestamp.day}.${timestamp.month}.${timestamp.year}';
+      return '${adjustedTimestamp.day}.${adjustedTimestamp.month}.${adjustedTimestamp.year}';
     }
   }
 

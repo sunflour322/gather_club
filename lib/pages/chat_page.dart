@@ -109,6 +109,13 @@ class _ChatPageState extends State<ChatPage>
         invitedMeetups = await _chatService.getInvitedMeetups();
         print('Загружено приглашений: ${invitedMeetups.length}');
 
+        // Фильтруем приглашения, исключая завершенные встречи
+        invitedMeetups = invitedMeetups
+            .where((chat) => chat.meetupStatus != MeetupStatus.completed)
+            .toList();
+        print(
+            'После фильтрации осталось приглашений: ${invitedMeetups.length}');
+
         // Обрабатываем приглашения
         for (int i = 0; i < invitedMeetups.length; i++) {
           var chat = invitedMeetups[i];
@@ -116,6 +123,7 @@ class _ChatPageState extends State<ChatPage>
           print('- ID: ${chat.chatId}');
           print('- Название: ${chat.name}');
           print('- Время: ${chat.scheduledTime}');
+          print('- Статус: ${chat.meetupStatus}');
           print('- Организатор: ${chat.createdByName}');
           print('- Участники: ${chat.participants.length}');
           print('- lastMessageContent: ${chat.lastMessageContent}');
@@ -348,8 +356,21 @@ class _ChatPageState extends State<ChatPage>
   }
 
   Widget _buildChatList(List<Chat> chats, {bool showActions = false}) {
-    // Больше не нужно фильтровать по статусу completed, так как API возвращает только активные встречи
+    // Фильтруем чаты по статусу
     List<Chat> filteredChats = chats;
+
+    // Если это приглашения (showActions = true), отфильтровываем завершенные встречи
+    if (showActions) {
+      filteredChats = chats
+          .where((chat) => chat.meetupStatus != MeetupStatus.completed)
+          .toList();
+
+      print(
+          'Отфильтровано приглашений: было ${chats.length}, стало ${filteredChats.length}');
+      for (var chat in filteredChats) {
+        print('- Приглашение ${chat.chatId}, статус: ${chat.meetupStatus}');
+      }
+    }
 
     if (filteredChats.isEmpty) {
       return Center(
@@ -380,6 +401,7 @@ class _ChatPageState extends State<ChatPage>
           print('- ID: ${chat.chatId}');
           print('- Название: ${chat.name}');
           print('- Время: ${chat.scheduledTime}');
+          print('- Статус: ${chat.meetupStatus}');
           print('- Последнее сообщение: ${chat.lastMessageContent}');
         }
         return _buildChatTile(chat,
