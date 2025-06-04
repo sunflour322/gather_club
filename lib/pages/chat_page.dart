@@ -5,6 +5,8 @@ import '../services/chat_service.dart';
 import '../auth_service/auth_provider.dart';
 import 'chat_detail_page.dart';
 import '../models/chat_participant_info.dart';
+import '../nav_service/navigation_provider.dart';
+import '../pages/Example.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -412,6 +414,13 @@ class _ChatPageState extends State<ChatPage>
 
   Widget _buildChatTile(Chat chat,
       {bool showActions = false, bool isArchived = false}) {
+    print('Building chat tile for chat: ${chat.name}');
+    print('- Place name: ${chat.placeName}');
+    print('- Place address: ${chat.placeAddress}');
+    print('- Latitude: ${chat.latitude}');
+    print('- Longitude: ${chat.longitude}');
+    print('- Place image URL: ${chat.placeImageUrl}');
+
     final participants = _chatParticipants[chat.chatId] ?? [];
 
     // Формируем текст участников: всегда показываем создателя и других участников
@@ -444,18 +453,9 @@ class _ChatPageState extends State<ChatPage>
       participantsText = allParticipants.join(', ');
     }
 
-    print('Formatting date for chat ${chat.chatId}:');
-    print('scheduledTime: ${chat.scheduledTime}');
-    print('lastMessageContent: ${chat.lastMessageContent}');
-    print('showActions: $showActions');
-    print('isArchived: $isArchived');
-    print('participants: $participantsText');
-
     final formattedDate = chat.scheduledTime != null
         ? _formatDateTime(chat.scheduledTime!)
         : 'Время не указано';
-
-    print('Formatted date: $formattedDate');
 
     // Для приглашений и архивных встреч не показываем последнее сообщение
     final shouldShowLastMessage =
@@ -498,7 +498,79 @@ class _ChatPageState extends State<ChatPage>
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 2),
+                if (chat.placeName != null || chat.placeAddress != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        if (chat.placeImageUrl != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              chat.placeImageUrl!,
+                              width: 60,
+                              height: 60,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  width: 60,
+                                  height: 60,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.place, size: 30),
+                                );
+                              },
+                            ),
+                          )
+                        else
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.place, size: 30),
+                          ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                chat.placeName ?? 'Место встречи',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              if (chat.placeAddress != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  chat.placeAddress!,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 4,
                   runSpacing: 2,
@@ -541,6 +613,20 @@ class _ChatPageState extends State<ChatPage>
                 ? null
                 : () => _onChatTap(chat, isArchived: isArchived),
           ),
+          if (!isArchived && chat.latitude != null && chat.longitude != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0, bottom: 8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.map, color: Colors.blue),
+                    label: const Text('Построить маршрут'),
+                    onPressed: () => _navigateToMap(chat),
+                  ),
+                ],
+              ),
+            ),
           // Показываем блок с последним сообщением только для активных встреч
           if (shouldShowLastMessage)
             Padding(
@@ -662,6 +748,27 @@ class _ChatPageState extends State<ChatPage>
         },
       );
     });
+  }
+
+  void _navigateToMap(Chat chat) {
+    if (chat.latitude != null && chat.longitude != null) {
+      final navigation = NavigationProvider.of(context);
+      if (navigation != null) {
+        navigation.onNavigate(0); // Переключаем на вкладку карты
+        ExamplePage.navigateToLocation(
+          context,
+          chat.latitude!,
+          chat.longitude!,
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Место встречи не указано'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
   }
 
   @override

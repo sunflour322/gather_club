@@ -22,6 +22,12 @@ class Chat {
   final DateTime? scheduledTime;
   final MeetupStatus? meetupStatus;
   final ParticipantStatus? currentUserStatus;
+  final String? description;
+  final double? latitude;
+  final double? longitude;
+  final String? placeName;
+  final String? placeAddress;
+  final String? placeImageUrl;
 
   Chat({
     required this.chatId,
@@ -39,6 +45,12 @@ class Chat {
     this.scheduledTime,
     this.meetupStatus,
     this.currentUserStatus,
+    this.description,
+    this.latitude,
+    this.longitude,
+    this.placeName,
+    this.placeAddress,
+    this.placeImageUrl,
   });
 
   Chat copyWith({
@@ -57,6 +69,12 @@ class Chat {
     DateTime? scheduledTime,
     MeetupStatus? meetupStatus,
     ParticipantStatus? currentUserStatus,
+    String? description,
+    double? latitude,
+    double? longitude,
+    String? placeName,
+    String? placeAddress,
+    String? placeImageUrl,
   }) {
     return Chat(
       chatId: chatId ?? this.chatId,
@@ -74,6 +92,12 @@ class Chat {
       scheduledTime: scheduledTime ?? this.scheduledTime,
       meetupStatus: meetupStatus ?? this.meetupStatus,
       currentUserStatus: currentUserStatus ?? this.currentUserStatus,
+      description: description ?? this.description,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      placeName: placeName ?? this.placeName,
+      placeAddress: placeAddress ?? this.placeAddress,
+      placeImageUrl: placeImageUrl ?? this.placeImageUrl,
     );
   }
 
@@ -255,6 +279,38 @@ class Chat {
     }
     final currentUserStatus = _parseParticipantStatus(participantStatusStr);
 
+    // Парсим информацию о месте
+    String? description;
+    double? latitude;
+    double? longitude;
+    String? placeName;
+    String? placeAddress;
+    String? placeImageUrl;
+
+    try {
+      if (json['description'] != null) {
+        description = json['description'] as String;
+      }
+
+      if (json['place'] != null) {
+        final place = json['place'] as Map<String, dynamic>;
+        latitude = place['latitude']?.toDouble();
+        longitude = place['longitude']?.toDouble();
+        placeName = place['name'];
+        placeAddress = place['address'];
+        placeImageUrl = place['imageUrl'];
+      } else if (json['meetup'] != null && json['meetup']['place'] != null) {
+        final place = json['meetup']['place'] as Map<String, dynamic>;
+        latitude = place['latitude']?.toDouble();
+        longitude = place['longitude']?.toDouble();
+        placeName = place['name'];
+        placeAddress = place['address'];
+        placeImageUrl = place['imageUrl'];
+      }
+    } catch (e) {
+      print('Warning: Failed to parse place info: $e');
+    }
+
     return Chat(
       chatId: chatId,
       name: json['name'] ?? json['meetup']?['name'] ?? 'Без названия',
@@ -271,6 +327,12 @@ class Chat {
       scheduledTime: scheduledTime,
       meetupStatus: meetupStatus,
       currentUserStatus: currentUserStatus,
+      description: description,
+      latitude: latitude,
+      longitude: longitude,
+      placeName: placeName,
+      placeAddress: placeAddress,
+      placeImageUrl: placeImageUrl,
     );
   }
 

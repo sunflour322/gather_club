@@ -442,6 +442,8 @@ class _PlaceContentState extends State<_PlaceContent>
             'name': widget.place.name,
             'address': widget.place.address,
             'imageUrl': _images.isNotEmpty ? _images[0].imageUrl : null,
+            'latitude': widget.place.latitude,
+            'longitude': widget.place.longitude,
           },
         ),
       ),

@@ -105,6 +105,11 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
   Future<void> _createMeetup() async {
     developer.log('Starting meetup creation process');
     developer.log('Selected place: ${widget.selectedPlace}');
+    developer.log('- Place name: ${widget.selectedPlace!['name']}');
+    developer.log('- Place address: ${widget.selectedPlace!['address']}');
+    developer.log('- Latitude: ${widget.selectedPlace!['latitude']}');
+    developer.log('- Longitude: ${widget.selectedPlace!['longitude']}');
+    developer.log('- Place image URL: ${widget.selectedPlace!['imageUrl']}');
 
     if (!_formKey.currentState!.validate()) {
       developer.log('Form validation failed');
@@ -149,6 +154,13 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
         'description': _descriptionController.text,
         'scheduledTime': scheduledDateTime!.toIso8601String(),
         'invitedUserIds': invitedUserIds,
+        'place': {
+          'name': widget.selectedPlace!['name'],
+          'address': widget.selectedPlace!['address'],
+          'latitude': widget.selectedPlace!['latitude'],
+          'longitude': widget.selectedPlace!['longitude'],
+          'imageUrl': widget.selectedPlace!['imageUrl'],
+        },
       };
       developer.log('Prepared meetup request: $meetupRequest');
 

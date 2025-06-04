@@ -70,24 +70,9 @@ class ChatService {
 
       // Выводим подробную информацию о полях в JSON
       for (var i = 0; i < meetupsJson.length; i++) {
-        print('Встреча #$i: ${meetupsJson[i]['name']}');
-        print('- meetupId: ${meetupsJson[i]['meetupId']}');
-        print('- scheduledTime: ${meetupsJson[i]['scheduledTime']}');
-
-        // Проверяем наличие поля scheduledTime
-        if (meetupsJson[i]['scheduledTime'] == null) {
-          print('!!! scheduledTime отсутствует для встречи #$i');
-
-          // Проверяем другие возможные источники времени
-          if (meetupsJson[i]['meetup'] != null &&
-              meetupsJson[i]['meetup']['scheduledTime'] != null) {
-            print(
-                '- Найдено время в meetup.scheduledTime: ${meetupsJson[i]['meetup']['scheduledTime']}');
-          }
-          if (meetupsJson[i]['meetupScheduledTime'] != null) {
-            print(
-                '- Найдено время в meetupScheduledTime: ${meetupsJson[i]['meetupScheduledTime']}');
-          }
+        print('Встреча #$i JSON: ${meetupsJson[i]}');
+        if (meetupsJson[i]['place'] != null) {
+          print('Место встречи #$i: ${meetupsJson[i]['place']}');
         }
       }
 
@@ -101,6 +86,16 @@ class ChatService {
         // Явно обрабатываем scheduledTime, если он существует
         if (json['scheduledTime'] != null) {
           chatJson['scheduledTime'] = json['scheduledTime'];
+        }
+
+        // Обрабатываем информацию о месте
+        if (json['place'] != null) {
+          final place = json['place'] as Map<String, dynamic>;
+          chatJson['placeName'] = place['name'];
+          chatJson['placeAddress'] = place['address'];
+          chatJson['latitude'] = place['latitude'];
+          chatJson['longitude'] = place['longitude'];
+          chatJson['placeImageUrl'] = place['imageUrl'];
         }
 
         return Chat.fromJson(chatJson);
@@ -968,11 +963,31 @@ class ChatService {
               'Найдено вложенное время встречи: ${chatJson['meetup']['scheduledTime']}');
         }
 
+        // Обрабатываем информацию о месте
+        if (chatJson['place'] != null) {
+          final place = chatJson['place'] as Map<String, dynamic>;
+          chatJson['placeName'] = place['name'];
+          chatJson['placeAddress'] = place['address'];
+          chatJson['latitude'] = place['latitude'];
+          chatJson['longitude'] = place['longitude'];
+          chatJson['placeImageUrl'] = place['imageUrl'];
+        } else if (chatJson['meetup'] != null &&
+            chatJson['meetup']['place'] != null) {
+          final place = chatJson['meetup']['place'] as Map<String, dynamic>;
+          chatJson['placeName'] = place['name'];
+          chatJson['placeAddress'] = place['address'];
+          chatJson['latitude'] = place['latitude'];
+          chatJson['longitude'] = place['longitude'];
+          chatJson['placeImageUrl'] = place['imageUrl'];
+        }
+
         final chat = Chat.fromJson(chatJson);
         print('Созданный объект Chat для $meetupId:');
         print('- scheduledTime: ${chat.scheduledTime}');
         print('- name: ${chat.name}');
         print('- lastMessageContent: ${chat.lastMessageContent}');
+        print('- placeName: ${chat.placeName}');
+        print('- placeAddress: ${chat.placeAddress}');
 
         return chat;
       } else if (response.statusCode == 404) {
@@ -1074,6 +1089,45 @@ class ChatService {
           // Принудительно устанавливаем lastMessageContent в null для архивных встреч
           'lastMessageContent': null,
         };
+
+        // Обрабатываем информацию о месте
+        print('Обработка данных о месте для встречи ${json['meetupId']}:');
+        print('- Наличие поля place: ${json['place'] != null}');
+        print(
+            '- Наличие поля meetup.place: ${json['meetup']?['place'] != null}');
+
+        if (json['place'] != null) {
+          final place = json['place'] as Map<String, dynamic>;
+          print('- Найдено место в корне JSON:');
+          print('  - name: ${place['name']}');
+          print('  - address: ${place['address']}');
+          print('  - latitude: ${place['latitude']}');
+          print('  - longitude: ${place['longitude']}');
+          print('  - imageUrl: ${place['imageUrl']}');
+
+          chatJson['placeName'] = place['name'];
+          chatJson['placeAddress'] = place['address'];
+          chatJson['latitude'] = place['latitude'];
+          chatJson['longitude'] = place['longitude'];
+          chatJson['placeImageUrl'] = place['imageUrl'];
+        } else if (json['meetup'] != null && json['meetup']['place'] != null) {
+          final place = json['meetup']['place'] as Map<String, dynamic>;
+          print('- Найдено место в объекте meetup:');
+          print('  - name: ${place['name']}');
+          print('  - address: ${place['address']}');
+          print('  - latitude: ${place['latitude']}');
+          print('  - longitude: ${place['longitude']}');
+          print('  - imageUrl: ${place['imageUrl']}');
+
+          chatJson['placeName'] = place['name'];
+          chatJson['placeAddress'] = place['address'];
+          chatJson['latitude'] = place['latitude'];
+          chatJson['longitude'] = place['longitude'];
+          chatJson['placeImageUrl'] = place['imageUrl'];
+        } else {
+          print('- Данные о месте не найдены');
+        }
+
         return Chat.fromJson(chatJson);
       }).toList();
 

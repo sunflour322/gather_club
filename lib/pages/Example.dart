@@ -220,6 +220,13 @@ class _ExamplePageState extends State<ExamplePage>
   List<Place> _places = [];
   bool _isLoadingPlaces = false;
 
+  // Добавляем новые поля для поиска
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearchActive = false;
+  List<Place> _searchResults = [];
+  List<UserCustomPlace> _searchUserPlaces = [];
+  String _searchQuery = '';
+
   @override
   bool get wantKeepAlive => true;
 
@@ -241,6 +248,7 @@ class _ExamplePageState extends State<ExamplePage>
         _updateFriendsLocations();
       }
     });
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
@@ -881,7 +889,7 @@ class _ExamplePageState extends State<ExamplePage>
       minLat = min(minLat, point.latitude);
       maxLat = max(maxLat, point.latitude);
       minLon = min(minLon, point.longitude);
-      maxLon = max(maxLon, point.longitude);
+      minLon = min(minLon, point.longitude);
     }
 
     // Вычисляем центр и зум для отображения всего маршрута
@@ -1399,6 +1407,7 @@ class _ExamplePageState extends State<ExamplePage>
     _locationUpdateTimer?.cancel();
     _friendsLocationUpdateTimer?.cancel();
     _placeNameController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -1432,8 +1441,174 @@ class _ExamplePageState extends State<ExamplePage>
             top: MediaQuery.of(context).padding.top,
             left: 0,
             right: 0,
-            child: _buildCategoriesSlider(),
+            child: Column(
+              children: [
+                _buildCategoriesSlider(),
+                // Добавляем поле поиска
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Поиск мест...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _isSearchActive
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _searchController.clear();
+                                },
+                              )
+                            : null,
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
+          // Затемненный фон при активном поиске
+          if (_isSearchActive)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 120,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                onTap: () {
+                  _searchController.clear();
+                },
+                child: Container(
+                  color: Colors.black.withOpacity(0.5),
+                ),
+              ),
+            ),
+          // Результаты поиска
+          if (_isSearchActive)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 120,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(20)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Результаты поиска',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              _searchController.clear();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          if (_searchUserPlaces.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'Мои места',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            ..._searchUserPlaces.map((place) => _buildPlaceCard(
+                                  name: place.name,
+                                  description: place.description,
+                                  onTap: () {
+                                    _searchController.clear();
+                                    _updateCamera(
+                                        place.latitude, place.longitude);
+                                  },
+                                )),
+                          ],
+                          if (_searchResults.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'Общие места',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            ..._searchResults.map((place) => _buildPlaceCard(
+                                  name: place.name,
+                                  description: place.description,
+                                  imageUrl: place.imageUrl,
+                                  onTap: () {
+                                    _searchController.clear();
+                                    _updateCamera(
+                                        place.latitude, place.longitude);
+                                  },
+                                )),
+                          ],
+                          if (_searchUserPlaces.isEmpty &&
+                              _searchResults.isEmpty)
+                            const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Text('Ничего не найдено'),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           // Панель информации о пешеходном маршруте
           if (_routeDuration != null && _routeDistance != null)
             Positioned(
@@ -1773,5 +1948,117 @@ class _ExamplePageState extends State<ExamplePage>
   Future<void> _refreshPlaces() async {
     if (_disposed) return;
     await _fetchAllPlaces();
+  }
+
+  void _onSearchChanged() {
+    if (_disposed) return;
+
+    setState(() {
+      _searchQuery = _searchController.text.toLowerCase();
+      _isSearchActive = _searchQuery.isNotEmpty;
+
+      if (_isSearchActive) {
+        // Фильтруем общие места
+        _searchResults = _allPlaces.where((place) {
+          final matchesSearch =
+              place.name.toLowerCase().contains(_searchQuery) ||
+                  (place.description?.toLowerCase().contains(_searchQuery) ??
+                      false);
+
+          // Проверяем соответствие категории
+          final matchesCategory = _selectedCategoryIds.contains(0) ||
+              _selectedCategoryIds.contains(place.categoryId);
+
+          return matchesSearch && matchesCategory;
+        }).toList();
+
+        // Фильтруем пользовательские места
+        _searchUserPlaces = _userPlaces.where((place) {
+          return place.name.toLowerCase().contains(_searchQuery) ||
+              (place.description?.toLowerCase().contains(_searchQuery) ??
+                  false);
+        }).toList();
+      } else {
+        _searchResults = [];
+        _searchUserPlaces = [];
+      }
+    });
+  }
+
+  Widget _buildPlaceCard({
+    required String name,
+    String? description,
+    String? imageUrl,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              if (imageUrl != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    imageUrl,
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: 80,
+                        height: 80,
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.image_not_supported),
+                      );
+                    },
+                  ),
+                )
+              else
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.place, size: 40),
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (description != null && description.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

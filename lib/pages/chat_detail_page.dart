@@ -9,6 +9,9 @@ import '../auth_service/auth_provider.dart';
 import '../widgets/participants_dialog.dart';
 import '../models/chat_participant_info.dart';
 import '../theme/app_theme.dart';
+import '../nav_service/navigation_provider.dart';
+import '../pages/Example.dart';
+import 'package:gather_club/pages/Example.dart';
 
 class ChatDetailPage extends StatefulWidget {
   final Chat chat;
@@ -568,6 +571,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    print('Building ChatDetailPage for chat: ${widget.chat.name}');
+    print('- Place name: ${widget.chat.placeName}');
+    print('- Place address: ${widget.chat.placeAddress}');
+    print('- Latitude: ${widget.chat.latitude}');
+    print('- Longitude: ${widget.chat.longitude}');
+    print('- Place image URL: ${widget.chat.placeImageUrl}');
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.chat.name),
@@ -585,6 +595,107 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       ),
       body: Column(
         children: [
+          if (widget.chat.placeName != null || widget.chat.placeAddress != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.accentColor.withOpacity(0.1),
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppTheme.accentColor.withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  if (widget.chat.placeImageUrl != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        widget.chat.placeImageUrl!,
+                        width: 60,
+                        height: 60,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.place, size: 30),
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.place, size: 30),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.chat.placeName ?? 'Место встречи',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        if (widget.chat.placeAddress != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.chat.placeAddress!,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.textSecondaryColor,
+                            ),
+                          ),
+                        ],
+                        if (widget.chat.scheduledTime != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDateTime(widget.chat.scheduledTime!),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.textSecondaryColor,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (widget.chat.latitude != null &&
+                      widget.chat.longitude != null)
+                    IconButton(
+                      icon: const Icon(Icons.map),
+                      onPressed: () {
+                        final navigation = NavigationProvider.of(context);
+                        if (navigation != null) {
+                          navigation
+                              .onNavigate(0); // Переключаем на вкладку карты
+                          ExamplePage.navigateToLocation(
+                            context,
+                            widget.chat.latitude!,
+                            widget.chat.longitude!,
+                          );
+                        }
+                      },
+                      tooltip: 'Построить маршрут',
+                    ),
+                ],
+              ),
+            ),
           Expanded(
             child: widget.isArchived
                 ? _buildArchivedChatView()

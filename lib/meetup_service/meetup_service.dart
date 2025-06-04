@@ -46,7 +46,12 @@ class MeetupService {
         }
 
         try {
-          return jsonDecode(response.body);
+          final responseData = jsonDecode(response.body);
+          developer.log('Parsed response data: $responseData');
+          if (responseData['place'] != null) {
+            developer.log('Place data in response: ${responseData['place']}');
+          }
+          return responseData;
         } catch (e) {
           developer.log('Error parsing response JSON: $e');
           return {'status': 'success', 'error': 'Could not parse response'};
