@@ -47,6 +47,139 @@ class ExamplePage extends StatefulWidget {
     }
   }
 
+  // Добавляем публичный метод для построения маршрута
+  static void buildRouteToLocation(BuildContext context, double latitude,
+      double longitude, String placeName) async {
+    final state = globalKey.currentState;
+    print('buildRouteToLocation: Вызван метод построения маршрута');
+    print(
+        'buildRouteToLocation: placeName = $placeName, lat = $latitude, long = $longitude');
+
+    if (state != null && state.mounted) {
+      print(
+          'buildRouteToLocation: Состояние найдено, проверяем инициализацию карты');
+
+      // Проверяем, инициализирован ли контроллер карты
+      if (state._mapController == null) {
+        print(
+            'buildRouteToLocation: Контроллер карты не инициализирован, ожидаем инициализации');
+        // Сохраняем координаты для последующего использования
+        state._pendingLocation =
+            Point(latitude: latitude, longitude: longitude);
+
+        // Ждем инициализации карты
+        int attempts = 0;
+        const maxAttempts = 10;
+
+        Future<void> waitForMapController() async {
+          if (state._mapController != null || attempts >= maxAttempts) {
+            if (state._mapController != null) {
+              print(
+                  'buildRouteToLocation: Контроллер карты инициализирован, продолжаем');
+              // Повторно вызываем метод
+              buildRouteToLocation(context, latitude, longitude, placeName);
+            } else {
+              print(
+                  'buildRouteToLocation: Превышено максимальное количество попыток ожидания инициализации карты');
+            }
+            return;
+          }
+
+          attempts++;
+          print(
+              'buildRouteToLocation: Попытка $attempts ожидания инициализации карты');
+          await Future.delayed(const Duration(milliseconds: 500));
+          waitForMapController();
+        }
+
+        waitForMapController();
+        return;
+      }
+
+      print(
+          'buildRouteToLocation: Текущее местоположение пользователя: ${state.location}');
+
+      // Создаем объект Place для построения маршрута
+      final place = Place(
+        placeId: 0, // Временный ID
+        name: placeName,
+        description: '',
+        latitude: latitude,
+        longitude: longitude,
+        imageUrl: null,
+        category: null,
+        categoryId: null,
+      );
+
+      if (state.location != null) {
+        print(
+            'buildRouteToLocation: Местоположение пользователя доступно, создаем маршрут');
+        print(
+            'buildRouteToLocation: Создан объект Place, вызываем _buildRoute');
+        // Вызываем метод построения маршрута
+        state._buildRoute(place, {}, state.location!);
+        print('buildRouteToLocation: Метод _buildRoute вызван');
+      } else {
+        print(
+            'buildRouteToLocation: Местоположение пользователя недоступно, пытаемся получить его');
+        try {
+          // Получаем местоположение пользователя напрямую через LocationService
+          final locationService = LocationService();
+          final userLocation = await locationService.getCurrentLocation();
+
+          print(
+              'buildRouteToLocation: Местоположение получено напрямую: $userLocation');
+
+          // Обновляем местоположение в state
+          state.location = userLocation;
+
+          // Добавляем метку пользователя на карту
+          state._addUserPlacemark(userLocation.lat, userLocation.long);
+
+          // Вызываем метод построения маршрута
+          state._buildRoute(place, {}, userLocation);
+          print(
+              'buildRouteToLocation: Метод _buildRoute вызван с напрямую полученным местоположением');
+        } catch (e) {
+          print(
+              'buildRouteToLocation: Ошибка при получении местоположения: $e');
+          // Если не удалось получить местоположение, пробуем через _moveToCurrentLocation
+          state._moveToCurrentLocation().then((_) {
+            if (state.location != null) {
+              print(
+                  'buildRouteToLocation: Местоположение получено после _moveToCurrentLocation');
+              // Вызываем метод построения маршрута
+              state._buildRoute(place, {}, state.location!);
+              print(
+                  'buildRouteToLocation: Метод _buildRoute вызван после получения местоположения');
+            } else {
+              print(
+                  'buildRouteToLocation: Не удалось получить местоположение пользователя');
+            }
+          });
+        }
+      }
+    } else {
+      print('buildRouteToLocation: Состояние не найдено или не активно');
+      // Если состояние не найдено, пробуем найти его через контекст
+      try {
+        // Пытаемся найти состояние через контекст
+        final navigatorState = Navigator.of(context);
+        if (navigatorState.mounted) {
+          // Переходим на страницу карты
+          navigatorState.pushNamed('/map').then((_) {
+            // После перехода на страницу карты пробуем снова построить маршрут
+            Future.delayed(const Duration(milliseconds: 500), () {
+              buildRouteToLocation(context, latitude, longitude, placeName);
+            });
+          });
+        }
+      } catch (e) {
+        print('buildRouteToLocation: Ошибка при попытке перехода на карту: $e');
+      }
+    }
+  }
+
   @override
   State<ExamplePage> createState() => _ExamplePageState();
 }
@@ -757,6 +890,12 @@ class _ExamplePageState extends State<ExamplePage>
   // Исправленный метод для запроса пешеходного маршрута
   Future<PedestrianSessionResult> _requestPedestrianRoute(
       Point startPoint, Point endPoint) async {
+    print('_requestPedestrianRoute: Начало запроса пешеходного маршрута');
+    print(
+        '_requestPedestrianRoute: Начальная точка - lat: ${startPoint.latitude}, long: ${startPoint.longitude}');
+    print(
+        '_requestPedestrianRoute: Конечная точка - lat: ${endPoint.latitude}, long: ${endPoint.longitude}');
+
     final points = [
       RequestPoint(
         point: startPoint,
@@ -768,16 +907,29 @@ class _ExamplePageState extends State<ExamplePage>
       ),
     ];
 
-    // Дожидаемся выполнения и получаем кортеж
-    final (session, resultFuture) = await YandexPedestrian.requestRoutes(
-        points: points,
-        // Новый формат параметров
-        avoidSteep: true,
-        timeOptions: TimeOptions() // Избегать крутых подъемов
-        );
+    try {
+      print('_requestPedestrianRoute: Вызываем YandexPedestrian.requestRoutes');
+      // Дожидаемся выполнения и получаем кортеж
+      final (session, resultFuture) = await YandexPedestrian.requestRoutes(
+          points: points,
+          // Новый формат параметров
+          avoidSteep: true,
+          timeOptions: TimeOptions() // Избегать крутых подъемов
+          );
 
-    // Теперь ждем выполнения Future<PedestrianSessionResult>
-    return await resultFuture;
+      print(
+          '_requestPedestrianRoute: Получен сессионный объект, ожидаем результат');
+      // Теперь ждем выполнения Future<PedestrianSessionResult>
+      final result = await resultFuture;
+      print('_requestPedestrianRoute: Получен результат маршрута');
+      print(
+          '_requestPedestrianRoute: Найдено маршрутов: ${result.routes?.length ?? 0}');
+
+      return result;
+    } catch (e) {
+      print('_requestPedestrianRoute: Ошибка при запросе маршрута: $e');
+      rethrow;
+    }
   }
 
 // Исправленный метод построения пешеходного маршрута
@@ -1227,6 +1379,17 @@ class _ExamplePageState extends State<ExamplePage>
 
     if (_isLoading && _hasLocationPermission) {
       await _moveToCurrentLocation();
+    } else if (!_isLoading && location == null) {
+      // Если карта уже загружена, но местоположение пользователя не определено,
+      // попробуем получить его
+      try {
+        location = await _locationService.getCurrentLocation();
+        _addUserPlacemark(location!.lat, location!.long);
+        print(
+            'Местоположение пользователя получено после создания карты: $location');
+      } catch (e) {
+        print('Ошибка при получении местоположения после создания карты: $e');
+      }
     }
 
     if (_pendingLocation != null) {

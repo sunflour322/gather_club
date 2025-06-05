@@ -7,6 +7,8 @@ import 'chat_detail_page.dart';
 import '../models/chat_participant_info.dart';
 import '../nav_service/navigation_provider.dart';
 import '../pages/Example.dart';
+import '../place_serice/place.dart';
+import '../map_service/location.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -70,16 +72,30 @@ class _ChatPageState extends State<ChatPage>
           // Пытаемся получить информацию о чате для встречи
           final chat = await _chatService.getChatByMeetupId(meetup.meetupId!);
 
-          // Если у чата нет scheduledTime, но он есть у встречи, используем его
-          if (chat.scheduledTime == null && meetup.scheduledTime != null) {
+          // Копируем информацию из meetup в chat, если она отсутствует в chat
+          Chat updatedChat = chat;
+
+          // Копируем scheduledTime, если он есть в meetup, но отсутствует в chat
+          if (updatedChat.scheduledTime == null &&
+              meetup.scheduledTime != null) {
             print(
                 'Копируем scheduledTime из meetup в chat: ${meetup.scheduledTime}');
-            final updatedChat =
-                chat.copyWith(scheduledTime: meetup.scheduledTime);
-            chatsWithMessages.add(updatedChat);
-          } else {
-            chatsWithMessages.add(chat);
+            updatedChat =
+                updatedChat.copyWith(scheduledTime: meetup.scheduledTime);
           }
+
+          // Копируем информацию о месте, если она есть в meetup, но отсутствует в chat
+          if (updatedChat.placeName == null && meetup.placeName != null) {
+            print('Копируем информацию о месте из meetup в chat');
+            updatedChat = updatedChat.copyWith(
+                placeName: meetup.placeName,
+                placeAddress: meetup.placeAddress,
+                latitude: meetup.latitude,
+                longitude: meetup.longitude,
+                placeImageUrl: meetup.placeImageUrl);
+          }
+
+          chatsWithMessages.add(updatedChat);
 
           // Загружаем информацию об участниках
           final participants =
@@ -566,6 +582,16 @@ class _ChatPageState extends State<ChatPage>
                             ],
                           ),
                         ),
+                        // Добавляем кнопку маршрута справа от информации о месте
+                        if (!isArchived &&
+                            chat.latitude != null &&
+                            chat.longitude != null)
+                          IconButton(
+                            icon: const Icon(Icons.directions_walk,
+                                color: Colors.blue),
+                            onPressed: () => _navigateToMap(chat),
+                            tooltip: 'Построить маршрут',
+                          ),
                       ],
                     ),
                   ),
@@ -613,20 +639,6 @@ class _ChatPageState extends State<ChatPage>
                 ? null
                 : () => _onChatTap(chat, isArchived: isArchived),
           ),
-          if (!isArchived && chat.latitude != null && chat.longitude != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 8.0, bottom: 8.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton.icon(
-                    icon: const Icon(Icons.map, color: Colors.blue),
-                    label: const Text('Построить маршрут'),
-                    onPressed: () => _navigateToMap(chat),
-                  ),
-                ],
-              ),
-            ),
           // Показываем блок с последним сообщением только для активных встреч
           if (shouldShowLastMessage)
             Padding(
@@ -752,16 +764,44 @@ class _ChatPageState extends State<ChatPage>
 
   void _navigateToMap(Chat chat) {
     if (chat.latitude != null && chat.longitude != null) {
+      print('_navigateToMap: Начинаем построение маршрута');
+      print(
+          '_navigateToMap: Данные места - lat: ${chat.latitude}, long: ${chat.longitude}, name: ${chat.placeName ?? chat.name}');
+
       final navigation = NavigationProvider.of(context);
       if (navigation != null) {
+        print(
+            '_navigateToMap: NavigationProvider найден, переключаемся на вкладку карты');
         navigation.onNavigate(0); // Переключаем на вкладку карты
-        ExamplePage.navigateToLocation(
-          context,
-          chat.latitude!,
-          chat.longitude!,
-        );
+
+        // Добавляем задержку перед построением маршрута, чтобы карта успела инициализироваться
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          // Перемещаем камеру к месту встречи
+          print('_navigateToMap: Вызываем navigateToLocation');
+          ExamplePage.navigateToLocation(
+            context,
+            chat.latitude!,
+            chat.longitude!,
+          );
+
+          // Добавляем дополнительную задержку перед построением маршрута
+          Future.delayed(const Duration(milliseconds: 500), () {
+            // Строим маршрут до места встречи
+            print('_navigateToMap: Вызываем buildRouteToLocation');
+            ExamplePage.buildRouteToLocation(
+              context,
+              chat.latitude!,
+              chat.longitude!,
+              chat.placeName ?? chat.name,
+            );
+            print('_navigateToMap: buildRouteToLocation вызван');
+          });
+        });
+      } else {
+        print('_navigateToMap: NavigationProvider не найден');
       }
     } else {
+      print('_navigateToMap: Координаты места не указаны');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Место встречи не указано'),
