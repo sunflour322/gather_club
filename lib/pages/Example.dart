@@ -25,158 +25,180 @@ import '../widgets/friend_info_overlay.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:gather_club/widgets/custom_notification.dart';
+import '../nav_service/navigation_provider.dart';
 
 class ExamplePage extends StatefulWidget {
-  const ExamplePage({super.key});
+  ExamplePage({Key? key}) : super(key: key ?? globalKey);
 
+  // Глобальный ключ для доступа к состоянию виджета
   static final GlobalKey<_ExamplePageState> globalKey =
       GlobalKey<_ExamplePageState>();
 
-  static void navigateToLocation(
-      BuildContext context, double latitude, double longitude) {
-    final state = globalKey.currentState;
-    if (state != null && state.mounted) {
-      if (state._mapController != null) {
-        // Если контроллер уже инициализирован, перемещаем камеру сразу
-        state._updateCamera(latitude, longitude);
-      } else {
-        // Если контроллер еще не инициализирован, сохраняем координаты
-        state._pendingLocation =
-            Point(latitude: latitude, longitude: longitude);
-      }
-    }
-  }
+  // Статические переменные для передачи данных между компонентами
+  static double? destinationLat;
+  static double? destinationLng;
+  static String? destinationName;
+  static bool pendingRouteRequest = false;
 
-  // Добавляем публичный метод для построения маршрута
+  // Метод для построения маршрута из других частей приложения
   static void buildRouteToLocation(BuildContext context, double latitude,
-      double longitude, String placeName) async {
-    final state = globalKey.currentState;
+      double longitude, String placeName) {
     print('buildRouteToLocation: Вызван метод построения маршрута');
     print(
         'buildRouteToLocation: placeName = $placeName, lat = $latitude, long = $longitude');
 
-    if (state != null && state.mounted) {
-      print(
-          'buildRouteToLocation: Состояние найдено, проверяем инициализацию карты');
-
-      // Проверяем, инициализирован ли контроллер карты
-      if (state._mapController == null) {
-        print(
-            'buildRouteToLocation: Контроллер карты не инициализирован, ожидаем инициализации');
-        // Сохраняем координаты для последующего использования
-        state._pendingLocation =
-            Point(latitude: latitude, longitude: longitude);
-
-        // Ждем инициализации карты
-        int attempts = 0;
-        const maxAttempts = 10;
-
-        Future<void> waitForMapController() async {
-          if (state._mapController != null || attempts >= maxAttempts) {
-            if (state._mapController != null) {
-              print(
-                  'buildRouteToLocation: Контроллер карты инициализирован, продолжаем');
-              // Повторно вызываем метод
-              buildRouteToLocation(context, latitude, longitude, placeName);
-            } else {
-              print(
-                  'buildRouteToLocation: Превышено максимальное количество попыток ожидания инициализации карты');
-            }
-            return;
-          }
-
-          attempts++;
-          print(
-              'buildRouteToLocation: Попытка $attempts ожидания инициализации карты');
-          await Future.delayed(const Duration(milliseconds: 500));
-          waitForMapController();
-        }
-
-        waitForMapController();
-        return;
-      }
-
-      print(
-          'buildRouteToLocation: Текущее местоположение пользователя: ${state.location}');
-
-      // Создаем объект Place для построения маршрута
-      final place = Place(
-        placeId: 0, // Временный ID
-        name: placeName,
-        description: '',
-        latitude: latitude,
-        longitude: longitude,
-        imageUrl: null,
-        category: null,
-        categoryId: null,
+    // Проверяем валидность координат
+    if (latitude == 0.0 || longitude == 0.0) {
+      print('buildRouteToLocation: ОШИБКА! Координаты места равны 0');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ошибка: координаты места встречи некорректны'),
+          backgroundColor: Colors.red,
+        ),
       );
+      return;
+    }
 
-      if (state.location != null) {
-        print(
-            'buildRouteToLocation: Местоположение пользователя доступно, создаем маршрут');
-        print(
-            'buildRouteToLocation: Создан объект Place, вызываем _buildRoute');
-        // Вызываем метод построения маршрута
-        state._buildRoute(place, {}, state.location!);
-        print('buildRouteToLocation: Метод _buildRoute вызван');
+    // Сохраняем данные маршрута в статических переменных
+    destinationLat = latitude;
+    destinationLng = longitude;
+    destinationName = placeName;
+    pendingRouteRequest = true;
+
+    // Переключаемся на вкладку карты
+    final navigationProvider = NavigationProvider.of(context);
+    if (navigationProvider != null) {
+      navigationProvider.onNavigate(0);
+      print('buildRouteToLocation: Переключились на вкладку карты');
+      print(
+          'buildRouteToLocation: Маршрут будет построен после инициализации карты');
+    } else {
+      print('buildRouteToLocation: NavigationProvider не найден');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ошибка: не удалось переключиться на карту'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Метод для навигации к точке на карте без построения маршрута
+  static void navigateToLocation(
+      BuildContext context, double latitude, double longitude) {
+    print('navigateToLocation: Вызван метод навигации к точке');
+    print('navigateToLocation: lat = $latitude, long = $longitude');
+
+    // Сохраняем координаты точки
+    destinationLat = latitude;
+    destinationLng = longitude;
+    // Не устанавливаем флаг запроса на маршрут
+    pendingRouteRequest = false;
+
+    // Переключаемся на вкладку карты
+    final navigationProvider = NavigationProvider.of(context);
+    if (navigationProvider != null) {
+      navigationProvider.onNavigate(0);
+      print('navigateToLocation: Переключились на вкладку карты');
+    } else {
+      print('navigateToLocation: NavigationProvider не найден');
+    }
+  }
+
+  // Метод для прямого вызова _buildRoute из текущего состояния
+  static Future<bool> directBuildRoute(
+      BuildContext context, double latitude, double longitude, String placeName,
+      [bool switchToMapTab = true]) async {
+    print('directBuildRoute: Вызван метод прямого построения маршрута');
+    print(
+        'directBuildRoute: placeName = $placeName, lat = $latitude, long = $longitude, switchToMapTab = $switchToMapTab');
+
+    // Проверяем валидность координат
+    if (latitude == 0.0 || longitude == 0.0) {
+      print('directBuildRoute: ОШИБКА! Координаты места равны 0');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ошибка: координаты места встречи некорректны'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return false;
+    }
+
+    // Переключаемся на вкладку карты, если требуется
+    if (switchToMapTab) {
+      final navigationProvider = NavigationProvider.of(context);
+      if (navigationProvider != null) {
+        navigationProvider.onNavigate(0); // 0 - индекс вкладки с картой
+        print('directBuildRoute: Переключились на вкладку карты');
+
+        // Даем задержку для переключения вкладки
+        await Future.delayed(const Duration(milliseconds: 500));
       } else {
-        print(
-            'buildRouteToLocation: Местоположение пользователя недоступно, пытаемся получить его');
+        print('directBuildRoute: NavigationProvider не найден');
+      }
+    }
+
+    // Получаем текущее состояние ExamplePage
+    final state = globalKey.currentState;
+    if (state != null && state.mounted) {
+      // Проверяем, инициализирован ли контроллер карты
+      if (state._mapController != null) {
         try {
-          // Получаем местоположение пользователя напрямую через LocationService
-          final locationService = LocationService();
-          final userLocation = await locationService.getCurrentLocation();
+          // Получаем текущее местоположение пользователя
+          final location = await state._locationService.getCurrentLocation();
 
-          print(
-              'buildRouteToLocation: Местоположение получено напрямую: $userLocation');
-
-          // Обновляем местоположение в state
-          state.location = userLocation;
-
-          // Добавляем метку пользователя на карту
-          state._addUserPlacemark(userLocation.lat, userLocation.long);
+          // Создаем объект Place для построения маршрута
+          final place = Place(
+            placeId: 0,
+            name: placeName,
+            description: '',
+            latitude: latitude,
+            longitude: longitude,
+            imageUrl: null,
+            category: null,
+            categoryId: null,
+          );
 
           // Вызываем метод построения маршрута
-          state._buildRoute(place, {}, userLocation);
-          print(
-              'buildRouteToLocation: Метод _buildRoute вызван с напрямую полученным местоположением');
+          await state._buildRoute(place, {}, location);
+          print('directBuildRoute: Маршрут построен');
+          return true;
         } catch (e) {
-          print(
-              'buildRouteToLocation: Ошибка при получении местоположения: $e');
-          // Если не удалось получить местоположение, пробуем через _moveToCurrentLocation
-          state._moveToCurrentLocation().then((_) {
-            if (state.location != null) {
-              print(
-                  'buildRouteToLocation: Местоположение получено после _moveToCurrentLocation');
-              // Вызываем метод построения маршрута
-              state._buildRoute(place, {}, state.location!);
-              print(
-                  'buildRouteToLocation: Метод _buildRoute вызван после получения местоположения');
-            } else {
-              print(
-                  'buildRouteToLocation: Не удалось получить местоположение пользователя');
-            }
-          });
+          print('directBuildRoute: Ошибка при построении маршрута: $e');
+          // Используем обычный метод с сохранением данных, если нужно переключить вкладку
+          if (switchToMapTab) {
+            buildRouteToLocation(context, latitude, longitude, placeName);
+          }
+          return false;
         }
+      } else {
+        print('directBuildRoute: Контроллер карты не инициализирован');
+        // Используем обычный метод с сохранением данных, если нужно переключить вкладку
+        if (switchToMapTab) {
+          buildRouteToLocation(context, latitude, longitude, placeName);
+        } else {
+          // Сохраняем данные маршрута без переключения вкладки
+          destinationLat = latitude;
+          destinationLng = longitude;
+          destinationName = placeName;
+          pendingRouteRequest = true;
+        }
+        return false;
       }
     } else {
-      print('buildRouteToLocation: Состояние не найдено или не активно');
-      // Если состояние не найдено, пробуем найти его через контекст
-      try {
-        // Пытаемся найти состояние через контекст
-        final navigatorState = Navigator.of(context);
-        if (navigatorState.mounted) {
-          // Переходим на страницу карты
-          navigatorState.pushNamed('/map').then((_) {
-            // После перехода на страницу карты пробуем снова построить маршрут
-            Future.delayed(const Duration(milliseconds: 500), () {
-              buildRouteToLocation(context, latitude, longitude, placeName);
-            });
-          });
-        }
-      } catch (e) {
-        print('buildRouteToLocation: Ошибка при попытке перехода на карту: $e');
+      print('directBuildRoute: Состояние ExamplePage недоступно');
+      // Используем обычный метод с сохранением данных, если нужно переключить вкладку
+      if (switchToMapTab) {
+        buildRouteToLocation(context, latitude, longitude, placeName);
+      } else {
+        // Сохраняем данные маршрута без переключения вкладки
+        destinationLat = latitude;
+        destinationLng = longitude;
+        destinationName = placeName;
+        pendingRouteRequest = true;
       }
+      return false;
     }
   }
 
@@ -909,6 +931,15 @@ class _ExamplePageState extends State<ExamplePage>
 
     try {
       print('_requestPedestrianRoute: Вызываем YandexPedestrian.requestRoutes');
+
+      // Проверяем, что точки не совпадают
+      if ((startPoint.latitude - endPoint.latitude).abs() < 0.0000001 &&
+          (startPoint.longitude - endPoint.longitude).abs() < 0.0000001) {
+        print(
+            '_requestPedestrianRoute: Начальная и конечная точки совпадают, невозможно построить маршрут');
+        throw Exception('Начальная и конечная точки совпадают');
+      }
+
       // Дожидаемся выполнения и получаем кортеж
       final (session, resultFuture) = await YandexPedestrian.requestRoutes(
           points: points,
@@ -925,6 +956,12 @@ class _ExamplePageState extends State<ExamplePage>
       print(
           '_requestPedestrianRoute: Найдено маршрутов: ${result.routes?.length ?? 0}');
 
+      if (result.routes == null || result.routes!.isEmpty) {
+        print('_requestPedestrianRoute: Маршруты не найдены');
+        throw Exception(
+            'Не удалось построить маршрут между указанными точками');
+      }
+
       return result;
     } catch (e) {
       print('_requestPedestrianRoute: Ошибка при запросе маршрута: $e');
@@ -933,8 +970,51 @@ class _ExamplePageState extends State<ExamplePage>
   }
 
 // Исправленный метод построения пешеходного маршрута
-  Future<void> _buildRoute(
+  Future<bool> _buildRoute(
       Place place, Map<String, dynamic> routeInfo, AppLatLong location) async {
+    print('_buildRoute: Начало построения маршрута');
+    print('_buildRoute: Место назначения - ${place.name}');
+    print(
+        '_buildRoute: Координаты места - lat: ${place.latitude}, long: ${place.longitude}');
+    print(
+        '_buildRoute: Текущее местоположение - lat: ${location.lat}, long: ${location.long}');
+
+    // Проверяем валидность координат
+    if (place.latitude == 0.0 || place.longitude == 0.0) {
+      print('_buildRoute: ОШИБКА! Координаты места назначения равны 0');
+      CustomNotification.show(
+          context, 'Ошибка: координаты места встречи некорректны');
+      return false;
+    }
+
+    if (location.lat == 0.0 || location.long == 0.0) {
+      print('_buildRoute: ОШИБКА! Координаты текущего местоположения равны 0');
+
+      // Пробуем получить местоположение еще раз
+      try {
+        print('_buildRoute: Пытаемся получить местоположение повторно');
+        final newLocation = await _locationService.getCurrentLocation();
+        print(
+            '_buildRoute: Получено новое местоположение - lat: ${newLocation.lat}, long: ${newLocation.long}');
+
+        // Если новое местоположение тоже невалидно
+        if (newLocation.lat == 0.0 || newLocation.long == 0.0) {
+          print('_buildRoute: Новое местоположение тоже невалидно');
+          CustomNotification.show(
+              context, 'Ошибка: не удалось определить ваше местоположение');
+          return false;
+        }
+
+        // Используем новое местоположение
+        location = newLocation;
+      } catch (e) {
+        print('_buildRoute: Ошибка при получении местоположения: $e');
+        CustomNotification.show(
+            context, 'Ошибка: не удалось определить ваше местоположение');
+        return false;
+      }
+    }
+
     setState(() {
       _isRouteCalculating = true;
       _destinationName = place.name;
@@ -946,13 +1026,23 @@ class _ExamplePageState extends State<ExamplePage>
       final endPoint =
           Point(latitude: place.latitude, longitude: place.longitude);
 
+      print('_buildRoute: Запрашиваем пешеходный маршрут');
+      print(
+          '_buildRoute: startPoint - lat: ${startPoint.latitude}, long: ${startPoint.longitude}');
+      print(
+          '_buildRoute: endPoint - lat: ${endPoint.latitude}, long: ${endPoint.longitude}');
       final result = await _requestPedestrianRoute(startPoint, endPoint);
 
       if (result.routes != null && result.routes!.isNotEmpty) {
         final route = result.routes!.first;
+        print('_buildRoute: Маршрут получен успешно');
+        print(
+            '_buildRoute: Количество точек в маршруте: ${route.geometry.points.length}');
 
         final timeText = route.metadata.weight.time.text;
         final distanceText = route.metadata.weight.walkingDistance.text;
+        print('_buildRoute: Время маршрута: $timeText');
+        print('_buildRoute: Расстояние: $distanceText');
 
         setState(() {
           _routeDuration = timeText;
@@ -976,12 +1066,17 @@ class _ExamplePageState extends State<ExamplePage>
 
         _updateMapObjects();
         await _showRouteOnMap(route.geometry.points);
+        print('_buildRoute: Маршрут отображен на карте');
+        return true;
       } else {
+        print('_buildRoute: Маршруты не найдены в результате');
         throw Exception('Не удалось построить пешеходный маршрут');
       }
     } catch (e) {
+      print('_buildRoute: Ошибка при построении маршрута: $e');
       CustomNotification.show(
           context, 'Ошибка построения пешеходного маршрута: ${e.toString()}');
+      return false;
     } finally {
       setState(() => _isRouteCalculating = false);
     }
@@ -1392,12 +1487,99 @@ class _ExamplePageState extends State<ExamplePage>
       }
     }
 
+    // Если есть сохраненная локация из предыдущего состояния, используем ее
     if (_pendingLocation != null) {
       print(
           'Moving to pending location: ${_pendingLocation!.latitude}, ${_pendingLocation!.longitude}');
       await _updateCamera(
           _pendingLocation!.latitude, _pendingLocation!.longitude);
       _pendingLocation = null;
+    }
+
+    // Проверяем, есть ли координаты для перемещения или построения маршрута
+    if (ExamplePage.destinationLat != null &&
+        ExamplePage.destinationLng != null) {
+      print('onMapCreated: Обнаружены сохраненные координаты');
+      print(
+          'onMapCreated: lat=${ExamplePage.destinationLat}, long=${ExamplePage.destinationLng}');
+
+      // Даем небольшую задержку для инициализации карты
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // Перемещаем камеру к указанным координатам
+      await _updateCamera(
+          ExamplePage.destinationLat!, ExamplePage.destinationLng!);
+      print('onMapCreated: Камера перемещена к указанным координатам');
+
+      // Если запрошено построение маршрута
+      if (ExamplePage.pendingRouteRequest) {
+        // Получаем текущее местоположение, если его нет
+        if (location == null) {
+          try {
+            print('onMapCreated: Получаем текущее местоположение пользователя');
+            location = await _locationService.getCurrentLocation();
+            print(
+                'onMapCreated: Местоположение получено - lat=${location!.lat}, long=${location!.long}');
+            _addUserPlacemark(location!.lat, location!.long);
+          } catch (e) {
+            print('onMapCreated: Ошибка при получении местоположения: $e');
+          }
+        }
+
+        if (location != null) {
+          // Проверяем валидность координат
+          if (location!.lat == 0.0 || location!.long == 0.0) {
+            print('onMapCreated: Координаты текущего местоположения невалидны');
+            try {
+              // Пробуем получить местоположение еще раз
+              location = await _locationService.getCurrentLocation();
+              print(
+                  'onMapCreated: Повторно получено местоположение - lat=${location!.lat}, long=${location!.long}');
+            } catch (e) {
+              print(
+                  'onMapCreated: Ошибка при повторном получении местоположения: $e');
+            }
+          }
+
+          // Создаем объект Place для построения маршрута
+          final place = Place(
+            placeId: 0,
+            name: ExamplePage.destinationName ?? 'Место назначения',
+            description: '',
+            latitude: ExamplePage.destinationLat!,
+            longitude: ExamplePage.destinationLng!,
+            imageUrl: null,
+            category: null,
+            categoryId: null,
+          );
+
+          // Строим маршрут
+          print('onMapCreated: Строим маршрут к сохраненной точке');
+          _buildRoute(place, {}, location!);
+        } else {
+          print(
+              'onMapCreated: Не удалось получить местоположение пользователя');
+
+          // Показываем уведомление пользователю
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                    'Не удалось определить ваше местоположение для построения маршрута'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
+      }
+
+      // Сбрасываем сохраненные данные только если построили маршрут или не требовалось его строить
+      if (!ExamplePage.pendingRouteRequest || location != null) {
+        ExamplePage.pendingRouteRequest = false;
+        ExamplePage.destinationLat = null;
+        ExamplePage.destinationLng = null;
+        ExamplePage.destinationName = null;
+      }
     }
 
     // Загружаем данные о друзьях сразу при создании карты
@@ -1584,7 +1766,6 @@ class _ExamplePageState extends State<ExamplePage>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      key: ExamplePage.globalKey,
       body: Stack(
         children: [
           YandexMap(
@@ -1847,19 +2028,37 @@ class _ExamplePageState extends State<ExamplePage>
             FriendInfoOverlay(
               friendLocation: _selectedFriend!,
               onRouteBuilt: () {
-                if (location != null) {
-                  _buildRoute(
-                    Place(
-                      placeId: _selectedFriend!.userId,
-                      name: _selectedFriend!.userName ?? 'Друг',
-                      description: null,
-                      latitude: _selectedFriend!.latitude,
-                      longitude: _selectedFriend!.longitude,
-                      imageUrl: _selectedFriend!.userAvatar,
-                    ),
-                    {},
-                    location!,
-                  );
+                try {
+                  // Используем статические переменные для передачи данных маршрута
+                  ExamplePage.destinationLat = _selectedFriend!.latitude;
+                  ExamplePage.destinationLng = _selectedFriend!.longitude;
+                  ExamplePage.destinationName =
+                      _selectedFriend!.userName ?? 'Друг';
+                  ExamplePage.pendingRouteRequest = true;
+
+                  // Переключаемся на вкладку карты
+                  final navigationProvider = NavigationProvider.of(context);
+                  if (navigationProvider != null) {
+                    navigationProvider.onNavigate(0);
+                  }
+                } catch (e) {
+                  print('Ошибка при построении маршрута к другу: $e');
+
+                  // Если произошла ошибка, используем старый метод
+                  if (location != null) {
+                    _buildRoute(
+                      Place(
+                        placeId: _selectedFriend!.userId,
+                        name: _selectedFriend!.userName ?? 'Друг',
+                        description: null,
+                        latitude: _selectedFriend!.latitude,
+                        longitude: _selectedFriend!.longitude,
+                        imageUrl: _selectedFriend!.userAvatar,
+                      ),
+                      {},
+                      location!,
+                    );
+                  }
                 }
               },
               onRouteCleared: _clearRoute,

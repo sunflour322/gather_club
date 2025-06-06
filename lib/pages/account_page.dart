@@ -493,14 +493,24 @@ class _AccountPageState extends State<AccountPage> {
                 final place = _userPlaces[index];
                 return InkWell(
                   onTap: () {
-                    final navigation = NavigationProvider.of(context);
-                    if (navigation != null) {
-                      navigation.onNavigate(0); // Сначала переключаем на карту
-                      ExamplePage.navigateToLocation(
-                        context,
-                        place.latitude,
-                        place.longitude,
-                      );
+                    try {
+                      // Используем метод directBuildRoute для прямого построения маршрута
+                      ExamplePage.directBuildRoute(
+                          context, place.latitude, place.longitude, place.name);
+                    } catch (e) {
+                      print('Ошибка при построении маршрута: $e');
+
+                      // Если произошла ошибка, пробуем через NavigationProvider
+                      final navigation = NavigationProvider.of(context);
+                      if (navigation != null) {
+                        navigation
+                            .onNavigate(0); // Сначала переключаем на карту
+                        ExamplePage.navigateToLocation(
+                          context,
+                          place.latitude,
+                          place.longitude,
+                        );
+                      }
                     }
                   },
                   child: Row(
@@ -558,15 +568,24 @@ class _AccountPageState extends State<AccountPage> {
                       IconButton(
                         icon: const Icon(Icons.map_outlined),
                         onPressed: () {
-                          final navigation = NavigationProvider.of(context);
-                          if (navigation != null) {
-                            navigation
-                                .onNavigate(0); // Сначала переключаем на карту
-                            ExamplePage.navigateToLocation(
-                              context,
-                              place.latitude,
-                              place.longitude,
-                            );
+                          try {
+                            // Используем метод directBuildRoute для прямого построения маршрута
+                            ExamplePage.directBuildRoute(context,
+                                place.latitude, place.longitude, place.name);
+                          } catch (e) {
+                            print('Ошибка при построении маршрута: $e');
+
+                            // Если произошла ошибка, пробуем через NavigationProvider
+                            final navigation = NavigationProvider.of(context);
+                            if (navigation != null) {
+                              navigation.onNavigate(
+                                  0); // Сначала переключаем на карту
+                              ExamplePage.navigateToLocation(
+                                context,
+                                place.latitude,
+                                place.longitude,
+                              );
+                            }
                           }
                         },
                         tooltip: 'Показать на карте',

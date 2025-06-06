@@ -27,6 +27,9 @@ class _ChatPageState extends State<ChatPage>
   late TabController _tabController;
   final Map<int, List<ChatParticipantInfo>> _chatParticipants = {};
 
+  // Добавляем Map для хранения состояния загрузки маршрута для каждого чата
+  final Map<int, bool> _isRouteLoading = {};
+
   @override
   void initState() {
     super.initState();
@@ -586,12 +589,23 @@ class _ChatPageState extends State<ChatPage>
                         if (!isArchived &&
                             chat.latitude != null &&
                             chat.longitude != null)
-                          IconButton(
-                            icon: const Icon(Icons.directions_walk,
-                                color: Colors.blue),
-                            onPressed: () => _navigateToMap(chat),
-                            tooltip: 'Построить маршрут',
-                          ),
+                          _isRouteLoading[chat.chatId] == true
+                              ? Container(
+                                  width: 48,
+                                  height: 48,
+                                  padding: const EdgeInsets.all(12),
+                                  child: const CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.blue),
+                                  ),
+                                )
+                              : IconButton(
+                                  icon: const Icon(Icons.directions_walk,
+                                      color: Colors.blue),
+                                  onPressed: () => _navigateToMap(chat),
+                                  tooltip: 'Построить маршрут',
+                                ),
                       ],
                     ),
                   ),
@@ -762,43 +776,90 @@ class _ChatPageState extends State<ChatPage>
     });
   }
 
-  void _navigateToMap(Chat chat) {
+  void _navigateToMap(Chat chat) async {
     if (chat.latitude != null && chat.longitude != null) {
       print('_navigateToMap: Начинаем построение маршрута');
       print(
           '_navigateToMap: Данные места - lat: ${chat.latitude}, long: ${chat.longitude}, name: ${chat.placeName ?? chat.name}');
 
-      final navigation = NavigationProvider.of(context);
-      if (navigation != null) {
-        print(
-            '_navigateToMap: NavigationProvider найден, переключаемся на вкладку карты');
-        navigation.onNavigate(0); // Переключаем на вкладку карты
+      // Проверяем валидность координат
+      if (chat.latitude == 0.0 || chat.longitude == 0.0) {
+        print('_navigateToMap: ОШИБКА! Координаты места равны 0');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ошибка: координаты места встречи некорректны'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
 
-        // Добавляем задержку перед построением маршрута, чтобы карта успела инициализироваться
-        Future.delayed(const Duration(milliseconds: 1000), () {
-          // Перемещаем камеру к месту встречи
-          print('_navigateToMap: Вызываем navigateToLocation');
-          ExamplePage.navigateToLocation(
+      // Устанавливаем состояние загрузки для этого чата
+      setState(() {
+        _isRouteLoading[chat.chatId] = true;
+      });
+
+      try {
+        // Сначала строим маршрут, НЕ переключаясь на вкладку карты
+        final success = await ExamplePage.directBuildRoute(
             context,
             chat.latitude!,
             chat.longitude!,
-          );
-
-          // Добавляем дополнительную задержку перед построением маршрута
-          Future.delayed(const Duration(milliseconds: 500), () {
-            // Строим маршрут до места встречи
-            print('_navigateToMap: Вызываем buildRouteToLocation');
-            ExamplePage.buildRouteToLocation(
-              context,
-              chat.latitude!,
-              chat.longitude!,
-              chat.placeName ?? chat.name,
+            chat.placeName ?? chat.name,
+            false // Не переключаться автоматически на вкладку карты
             );
-            print('_navigateToMap: buildRouteToLocation вызван');
+
+        print('_navigateToMap: Результат построения маршрута: $success');
+
+        // Если маршрут успешно построен, переключаемся на вкладку карты
+        if (success) {
+          // Переключаемся на вкладку карты
+          final navigation = NavigationProvider.of(context);
+          if (navigation != null && mounted) {
+            navigation.onNavigate(0);
+            print(
+                '_navigateToMap: Переключились на вкладку карты после построения маршрута');
+          } else {
+            print(
+                '_navigateToMap: NavigationProvider не найден или виджет размонтирован');
+          }
+        } else {
+          print(
+              '_navigateToMap: Маршрут не был построен, остаемся на текущем экране');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Не удалось построить маршрут'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        print('_navigateToMap: Ошибка при построении маршрута: $e');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Ошибка при построении маршрута: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+
+        // Если произошла ошибка, сохраняем данные маршрута, но не переключаемся на карту
+        ExamplePage.destinationLat = chat.latitude;
+        ExamplePage.destinationLng = chat.longitude;
+        ExamplePage.destinationName = chat.placeName ?? chat.name;
+        ExamplePage.pendingRouteRequest = true;
+        print('_navigateToMap: Сохранены данные маршрута в ExamplePage');
+      } finally {
+        // Сбрасываем состояние загрузки
+        if (mounted) {
+          setState(() {
+            _isRouteLoading[chat.chatId] = false;
           });
-        });
-      } else {
-        print('_navigateToMap: NavigationProvider не найден');
+        }
       }
     } else {
       print('_navigateToMap: Координаты места не указаны');

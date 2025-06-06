@@ -13,10 +13,10 @@ final routes = {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Scaffold(body: Center(child: CircularProgressIndicator()));
           }
-          return snapshot.data == true ? ExamplePage() : AuthPage();
+          return snapshot.data == true ? NavPage() : AuthPage();
         },
       ),
   '/login': (context) => AuthPage(),
   '/register': (context) => RegisterScreen(),
-  '/home': (context) => ExamplePage(),
+  '/home': (context) => NavPage(),
 };

@@ -21,7 +21,7 @@ class NavPage extends StatefulWidget {
 class _NavPageState extends State<NavPage> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   final _widgetOptions = [
-    const ExamplePage(),
+    ExamplePage(),
     const ChatPage(),
     const AccountPage(),
   ];

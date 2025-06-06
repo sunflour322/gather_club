@@ -678,17 +678,75 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                   if (widget.chat.latitude != null &&
                       widget.chat.longitude != null)
                     IconButton(
-                      icon: const Icon(Icons.map),
+                      icon: const Icon(Icons.directions_walk),
                       onPressed: () {
+                        // Проверяем валидность координат
+                        if (widget.chat.latitude == 0.0 ||
+                            widget.chat.longitude == 0.0) {
+                          print('Ошибка: координаты места встречи некорректны');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                  'Ошибка: координаты места встречи некорректны'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        // Создаем данные маршрута
+                        final routeInfo = {
+                          'origin': {
+                            'lat':
+                                0.0, // Будет заполнено текущим местоположением
+                            'lng': 0.0
+                          },
+                          'destination': {
+                            'lat': widget.chat.latitude!,
+                            'lng': widget.chat.longitude!
+                          },
+                          'placeName':
+                              widget.chat.placeName ?? widget.chat.name,
+                        };
+
+                        print(
+                            'Построение маршрута: lat=${widget.chat.latitude}, lng=${widget.chat.longitude}, name=${widget.chat.placeName ?? widget.chat.name}');
+
+                        // Закрываем диалог и вызываем построение маршрута
+                        Navigator.of(context)
+                            .pop(); // Закрываем текущий экран чата
+
+                        // Переключаемся на вкладку карты
                         final navigation = NavigationProvider.of(context);
                         if (navigation != null) {
-                          navigation
-                              .onNavigate(0); // Переключаем на вкладку карты
-                          ExamplePage.navigateToLocation(
-                            context,
-                            widget.chat.latitude!,
-                            widget.chat.longitude!,
-                          );
+                          // Сначала переключаемся на вкладку карты
+                          navigation.onNavigate(0);
+
+                          // Используем метод directBuildRoute для прямого построения маршрута
+                          try {
+                            ExamplePage.directBuildRoute(
+                                context,
+                                widget.chat.latitude!,
+                                widget.chat.longitude!,
+                                widget.chat.placeName ?? widget.chat.name);
+                            print(
+                                'Маршрут успешно запрошен через directBuildRoute');
+                          } catch (e) {
+                            print('Ошибка при построении маршрута: $e');
+
+                            // Если произошла ошибка, используем старый подход
+                            Future.delayed(const Duration(milliseconds: 300),
+                                () {
+                              ExamplePage.destinationLat = widget.chat.latitude;
+                              ExamplePage.destinationLng =
+                                  widget.chat.longitude;
+                              ExamplePage.destinationName =
+                                  widget.chat.placeName ?? widget.chat.name;
+                              ExamplePage.pendingRouteRequest = true;
+                              print(
+                                  'Маршрут запрошен через статические переменные');
+                            });
+                          }
                         }
                       },
                       tooltip: 'Построить маршрут',
