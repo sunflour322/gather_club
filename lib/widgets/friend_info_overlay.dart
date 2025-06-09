@@ -104,86 +104,37 @@ class FriendInfoOverlay extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildActionButton(
-                    icon: Icons.directions_walk,
-                    label: 'Маршрут',
-                    color: Colors.green,
-                    onPressed: onRouteBuilt,
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: onRouteBuilt,
+                  icon: const Icon(Icons.directions_walk, size: 24),
+                  label: const Text(
+                    'Маршрут',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
+                    ),
                   ),
-                  _buildActionButton(
-                    icon: Icons.chat,
-                    label: 'Чат',
-                    color: Colors.blue,
-                    onPressed: onChat,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.withOpacity(0.1),
+                    foregroundColor: Colors.green,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: Colors.green.withOpacity(0.5),
+                        width: 1,
+                      ),
+                    ),
                   ),
-                  _buildActionButton(
-                    icon: Icons.close_fullscreen,
-                    label: 'Скрыть маршрут',
-                    color: Colors.red,
-                    onPressed: onRouteCleared,
-                  ),
-                ],
+                ),
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildActionButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    VoidCallback? onPressed,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 56,
-          height: 56,
-          margin: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: color.withOpacity(0.3), width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.1),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: onPressed,
-              child: Center(
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 28,
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: color.withOpacity(0.8),
-          ),
-        ),
-      ],
     );
   }
 }

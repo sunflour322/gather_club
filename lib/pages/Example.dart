@@ -254,6 +254,8 @@ class PlaceCategory {
         return Icons.shopping_bag;
       case 8:
         return Icons.hotel;
+      case 9:
+        return Icons.school;
       default:
         return Icons.place;
     }
@@ -1830,25 +1832,11 @@ class _ExamplePageState extends State<ExamplePage>
             ),
           ),
           // Затемненный фон при активном поиске
-          if (_isSearchActive)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 120,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: GestureDetector(
-                onTap: () {
-                  _searchController.clear();
-                },
-                child: Container(
-                  color: Colors.black.withOpacity(0.5),
-                ),
-              ),
-            ),
+
           // Результаты поиска
           if (_isSearchActive)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 120,
+              top: MediaQuery.of(context).padding.top + 140,
               left: 0,
               right: 0,
               bottom: 0,
@@ -2027,38 +2015,29 @@ class _ExamplePageState extends State<ExamplePage>
           if (_selectedFriend != null)
             FriendInfoOverlay(
               friendLocation: _selectedFriend!,
-              onRouteBuilt: () {
+              onRouteBuilt: () async {
                 try {
-                  // Используем статические переменные для передачи данных маршрута
-                  ExamplePage.destinationLat = _selectedFriend!.latitude;
-                  ExamplePage.destinationLng = _selectedFriend!.longitude;
-                  ExamplePage.destinationName =
-                      _selectedFriend!.userName ?? 'Друг';
-                  ExamplePage.pendingRouteRequest = true;
+                  // Получаем текущее местоположение пользователя
+                  final currentLocation =
+                      await _locationService.getCurrentLocation();
 
-                  // Переключаемся на вкладку карты
-                  final navigationProvider = NavigationProvider.of(context);
-                  if (navigationProvider != null) {
-                    navigationProvider.onNavigate(0);
-                  }
+                  // Строим маршрут напрямую
+                  await _buildRoute(
+                    Place(
+                      placeId: _selectedFriend!.userId,
+                      name: _selectedFriend!.userName ?? 'Друг',
+                      description: null,
+                      latitude: _selectedFriend!.latitude,
+                      longitude: _selectedFriend!.longitude,
+                      imageUrl: _selectedFriend!.userAvatar,
+                    ),
+                    {},
+                    currentLocation,
+                  );
                 } catch (e) {
                   print('Ошибка при построении маршрута к другу: $e');
-
-                  // Если произошла ошибка, используем старый метод
-                  if (location != null) {
-                    _buildRoute(
-                      Place(
-                        placeId: _selectedFriend!.userId,
-                        name: _selectedFriend!.userName ?? 'Друг',
-                        description: null,
-                        latitude: _selectedFriend!.latitude,
-                        longitude: _selectedFriend!.longitude,
-                        imageUrl: _selectedFriend!.userAvatar,
-                      ),
-                      {},
-                      location!,
-                    );
-                  }
+                  CustomNotification.show(
+                      context, 'Ошибка построения маршрута: ${e.toString()}');
                 }
               },
               onRouteCleared: _clearRoute,

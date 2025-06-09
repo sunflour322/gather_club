@@ -82,6 +82,7 @@ flutter:
     - assets/pin.png
     - assets/location.png
     - assets/default_avatar.png
+    - assets/star.png
     - assets/friend_marker.gif
 
   # An image asset can refer to one or more resolution-specific "variants", see

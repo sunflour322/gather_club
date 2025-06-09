@@ -12,20 +12,25 @@ class PlaceImageService {
 
   PlaceImageService(this._authProvider);
 
-  Future<String> uploadImage(int placeId, File imageFile) async {
+  Future<PlaceImage> uploadImage(
+      int placeId, File imageFile, int? userId) async {
     try {
       final token = await _authProvider.getToken();
       if (token == null) throw Exception('Не авторизован');
 
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$_baseUrl/place/$placeId'),
+        Uri.parse('$_baseUrl/place/$placeId/image'),
       );
 
       request.headers.addAll({
         'Authorization': 'Bearer $token',
         'Accept': '*/*',
       });
+
+      if (userId != null) {
+        request.fields['userId'] = userId.toString();
+      }
 
       final mimeType = imageFile.path.split('.').last.toLowerCase();
       final contentType = MediaType('image', mimeType);
@@ -40,8 +45,7 @@ class PlaceImageService {
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        return responseData['imageUrl'];
+        return PlaceImage.fromJson(json.decode(response.body));
       } else {
         print('Response body: ${response.body}');
         throw Exception('Ошибка загрузки изображения: ${response.statusCode}');

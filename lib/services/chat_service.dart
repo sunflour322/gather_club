@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'package:gather_club/services/user_location_service.dart';
+
+import '../models/location_check_result.dart';
 import 'package:stomp_dart_client/stomp.dart';
 import 'package:stomp_dart_client/stomp_config.dart';
 import 'package:stomp_dart_client/stomp_frame.dart';
@@ -1027,6 +1030,42 @@ class ChatService {
       }
     } catch (e) {
       print('Ошибка при получении информации об участниках:');
+      print(e);
+      rethrow;
+    }
+  }
+
+  Future<LocationCheckResult> checkMeetupLocation(
+    int meetupId,
+    int userId,
+    double? latitude,
+    double? longitude,
+  ) async {
+    final token = await _authProvider.getToken();
+
+    if (token == null) throw Exception('Не авторизован');
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/meetups/$meetupId/location-check/$userId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'latitude': latitude,
+          'longitude': longitude,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return LocationCheckResult.fromJson(jsonDecode(response.body));
+      } else {
+        throw Exception(
+            'Ошибка проверки местоположения: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Ошибка при проверке местоположения:');
       print(e);
       rethrow;
     }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:gather_club/services/user_location_service.dart';
+import '../widgets/custom_notification.dart';
 import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../models/chat_message.dart';
@@ -27,13 +29,14 @@ class ChatDetailPage extends StatefulWidget {
   State<ChatDetailPage> createState() => _ChatDetailPageState();
 }
 
-class _ChatDetailPageState extends State<ChatDetailPage> {
+class _ChatDetailPageState extends State<ChatDetailPage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   ChatMessage? _replyTo;
   bool _isTyping = false;
   late final ChatService _chatService;
-  int? _currentUserId;
+  int _currentUserId = 0;
   List<ChatMessage> _messages = [];
   bool _isLoading = true;
   Timer? _typingTimer;
@@ -41,6 +44,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   int _currentPage = 0;
   static const int _pageSize = 20;
   List<ChatParticipantInfo> _participants = [];
+  Timer? _checkTimeTimer;
+  bool _showCheckButton = false;
+  Duration? _timeRemaining;
+  late AnimationController _starAnimationController;
+  late Animation<double> _starAnimation;
 
   @override
   void initState() {
@@ -50,6 +58,60 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     _initWebSocket();
     _getCurrentUser();
     _loadInitialData();
+
+    _starAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..repeat(reverse: true);
+
+    _starAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
+      CurvedAnimation(
+        parent: _starAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    if (widget.chat.scheduledTime != null) {
+      _checkTimeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        _updateCheckButtonVisibility();
+      });
+    }
+  }
+
+  void _updateCheckButtonVisibility() {
+    if (widget.chat.scheduledTime == null) return;
+
+    final now = DateTime.now();
+    final scheduledTime = widget.chat.scheduledTime!;
+    final halfHour = const Duration(minutes: 30);
+
+    // Показываем кнопку за 30 минут до и после встречи
+    final shouldShow = now.isAfter(scheduledTime.subtract(halfHour)) &&
+        now.isBefore(scheduledTime.add(halfHour));
+
+    if (mounted) {
+      setState(() {
+        _showCheckButton = shouldShow;
+        _timeRemaining = scheduledTime.add(halfHour).difference(now);
+      });
+    }
+  }
+
+  Widget _buildLocationCheckButton() {
+    final remainingText = _timeRemaining != null
+        ? '${_timeRemaining!.inMinutes}:${(_timeRemaining!.inSeconds % 60).toString().padLeft(2, '0')}'
+        : '';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: Text(
+        remainingText,
+        style: TextStyle(
+          color: AppTheme.textSecondaryColor,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
   }
 
   Future<void> _getCurrentUser() async {
@@ -118,10 +180,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
 
         if (!subscribed && mounted) {
           // Если после всех попыток не удалось подписаться, показываем сообщение
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'Не удалось подключиться к чату. Сообщения могут отображаться некорректно.')),
+          CustomNotification.show(
+            context,
+            'Не удалось подключиться к чату. Сообщения могут отображаться некорректно.',
           );
         }
       }
@@ -129,8 +190,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       print('Ошибка при инициализации WebSocket:');
       print(e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка подключения к чату: $e')),
+        CustomNotification.show(
+          context,
+          'Ошибка подключения к чату: $e',
         );
       }
     }
@@ -178,8 +240,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       print('Ошибка при отправке сообщения:');
       print(e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка отправки сообщения: $e')),
+        CustomNotification.show(
+          context,
+          'Ошибка отправки сообщения: $e',
         );
       }
     }
@@ -189,6 +252,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    _checkTimeTimer?.cancel();
+    _starAnimationController.dispose();
     try {
       _chatService.unsubscribeFromChat(widget.chat.chatId);
     } catch (e) {
@@ -436,8 +501,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     } catch (e) {
       print('Ошибка при загрузке данных: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка загрузки данных: $e')),
+        CustomNotification.show(
+          context,
+          'Ошибка загрузки данных: $e',
         );
       }
     } finally {
@@ -571,6 +637,33 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final currentTime = DateTime.now();
+    final isActivePeriod = widget.chat.scheduledTime != null &&
+        currentTime.isAfter(
+            widget.chat.scheduledTime!.subtract(const Duration(minutes: 30))) &&
+        currentTime.isBefore(
+            widget.chat.scheduledTime!.add(const Duration(minutes: 30)));
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 500),
+      decoration: BoxDecoration(
+        gradient: isActivePeriod
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.accentColor.withOpacity(0.1),
+                  Colors.white.withOpacity(0.3),
+                  AppTheme.accentColor.withOpacity(0.1),
+                ],
+              )
+            : null,
+      ),
+      child: _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     print('Building ChatDetailPage for chat: ${widget.chat.name}');
     print('- Place name: ${widget.chat.placeName}');
     print('- Place address: ${widget.chat.placeAddress}');
@@ -586,6 +679,103 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Icon(Icons.archive, color: AppTheme.textSecondaryColor),
+            ),
+          if (widget.chat.scheduledTime != null && _showCheckButton)
+            _buildLocationCheckButton(),
+          if (widget.chat.scheduledTime != null && _showCheckButton)
+            AnimatedBuilder(
+              animation: _starAnimation,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: _starAnimation.value,
+                  child: IconButton(
+                    icon: Image.asset('assets/star.png', width: 24, height: 24),
+                    onPressed: () async {
+                      print(
+                          '[${DateTime.now()}] Начало обработки нажатия кнопки звезды');
+
+                      if (_currentUserId == null) {
+                        print(
+                            '[${DateTime.now()}] Ошибка: _currentUserId равен null');
+                        CustomNotification.show(
+                          context,
+                          'Не удалось определить пользователя',
+                        );
+                        return;
+                      }
+
+                      print(
+                          '[${DateTime.now()}] ID пользователя: $_currentUserId');
+
+                      try {
+                        final locationService =
+                            Provider.of<UserLocationService>(
+                          context,
+                          listen: false,
+                        );
+
+                        print(
+                            '[${DateTime.now()}] Запрос текущего местоположения...');
+                        final currentLocation = await locationService
+                            .getLastLocation(_currentUserId!);
+
+                        if (currentLocation == null) {
+                          print(
+                              '[${DateTime.now()}] Ошибка: не удалось получить местоположение');
+                          CustomNotification.show(
+                            context,
+                            'Не удалось получить текущее местоположение',
+                          );
+                          return;
+                        }
+
+                        print(
+                            '[${DateTime.now()}] Получено местоположение: lat=${currentLocation.latitude}, lon=${currentLocation.longitude}');
+                        print(
+                            '[${DateTime.now()}] Вызов API проверки местоположения...');
+
+                        if (widget.chat.meetupId == null) {
+                          CustomNotification.show(
+                            context,
+                            'Ошибка: ID встречи не найден',
+                          );
+                          return;
+                        }
+
+                        final result = await _chatService.checkMeetupLocation(
+                          widget.chat.meetupId!, // Гарантировано не null
+                          _currentUserId,
+                          currentLocation.latitude,
+                          currentLocation.longitude,
+                        );
+
+                        print(
+                            '[${DateTime.now()}] Результат API: success=${result.success}, message=${result.message}');
+
+                        CustomNotification.show(
+                          context,
+                          result.message!,
+                        );
+
+                        if (result.success) {
+                          print(
+                              '[${DateTime.now()}] Успешная проверка местоположения');
+                        } else {
+                          print(
+                              '[${DateTime.now()}] Ошибка проверки местоположения: ${result.message}');
+                        }
+                      } catch (e) {
+                        print(
+                            '[${DateTime.now()}] Исключение при проверке местоположения: $e');
+                        CustomNotification.show(
+                          context,
+                          'Ошибка проверки местоположения: $e',
+                        );
+                      }
+                    },
+                  ),
+                );
+              },
             ),
           IconButton(
             icon: const Icon(Icons.group),
@@ -684,12 +874,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                         if (widget.chat.latitude == 0.0 ||
                             widget.chat.longitude == 0.0) {
                           print('Ошибка: координаты места встречи некорректны');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  'Ошибка: координаты места встречи некорректны'),
-                              backgroundColor: Colors.red,
-                            ),
+                          CustomNotification.show(
+                            context,
+                            'Ошибка: координаты места встречи некорректны',
                           );
                           return;
                         }
@@ -850,38 +1037,6 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                         ),
                       ],
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => setState(() => _replyTo = null),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-            ),
-          if (!widget.isArchived)
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      decoration: const InputDecoration(
-                        hintText: 'Введите сообщение...',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: null,
-                      textCapitalization: TextCapitalization.sentences,
-                      onChanged: (_) =>
-                          _chatService.notifyTyping(widget.chat.chatId),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.send),
-                    onPressed: _sendMessage,
-                    color: AppTheme.accentColor,
                   ),
                 ],
               ),

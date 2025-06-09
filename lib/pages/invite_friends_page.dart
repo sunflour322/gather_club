@@ -187,7 +187,9 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
             child: Text(
               'Готово (${_selectedFriendIds.length})',
               style: TextStyle(
-                color: _selectedFriendIds.isEmpty ? Colors.grey : Colors.white,
+                color: _selectedFriendIds.isEmpty
+                    ? Colors.grey
+                    : AppTheme.accentColor,
               ),
             ),
           ),

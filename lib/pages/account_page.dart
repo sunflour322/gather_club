@@ -33,6 +33,7 @@ class _AccountPageState extends State<AccountPage> {
   List<Friend> _incomingRequests = [];
   List<Friend> _outgoingRequests = [];
   bool _isLoading = true;
+  int _starBalance = 0;
   late final FriendService _friendService;
   late final UserCustomPlaceService _userPlaceService;
   late final UserService _userService;
@@ -79,6 +80,20 @@ class _AccountPageState extends State<AccountPage> {
       if (userData['avatarUrl'] != null) {
         Provider.of<AvatarProvider>(context, listen: false)
             .setAvatarUrl(userData['avatarUrl']);
+      }
+
+      // Получаем баланс звезд
+      final balanceResponse = await http.get(
+        Uri.parse('http://212.67.8.92:8080/users/$userId/currency/balance'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (balanceResponse.statusCode == 200) {
+        final balanceData = json.decode(balanceResponse.body);
+        _starBalance = balanceData['balance'] ?? 0;
       }
 
       // Загружаем друзей, запросы и пользовательские места параллельно
@@ -337,8 +352,6 @@ class _AccountPageState extends State<AccountPage> {
             const Divider(height: 20),
             _buildInfoRow(
                 Icons.email, 'Email', _userData?['email'] ?? 'Не указан'),
-            _buildInfoRow(Icons.phone, 'Телефон',
-                _userData?['phoneNumber'] ?? 'Не указан'),
             _buildInfoRow(
                 Icons.calendar_today,
                 'Дата регистрации',
@@ -654,14 +667,35 @@ class _AccountPageState extends State<AccountPage> {
   Widget _buildStatItem(String value, String label) {
     return Column(
       children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: AppTheme.accentColor,
+        if (label == 'Встреч')
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset(
+                'assets/star.png',
+                width: 20,
+                height: 20,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _starBalance.toString(),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.accentColor,
+                ),
+              ),
+            ],
+          )
+        else
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.accentColor,
+            ),
           ),
-        ),
         const SizedBox(height: 4),
         Text(
           label,

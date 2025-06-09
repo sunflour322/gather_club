@@ -7,6 +7,7 @@ import 'package:gather_club/nav_service/routes.dart';
 import 'package:gather_club/pages/auth_page.dart';
 import 'package:gather_club/pages/reg_page.dart';
 import 'package:gather_club/user_service/avatar_provider.dart';
+import 'package:gather_club/services/user_location_service.dart';
 import 'package:provider/provider.dart';
 import 'package:gather_club/pages/account_page.dart';
 import 'package:gather_club/pages/friend_search_page.dart';
@@ -37,6 +38,11 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => AvatarProvider()),
+        ChangeNotifierProvider<UserLocationService>(
+          create: (context) => UserLocationService(
+            Provider.of<AuthProvider>(context, listen: false),
+          ),
+        ),
       ],
       child: MaterialApp(
         title: 'Gather Club',

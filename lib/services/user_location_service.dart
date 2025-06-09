@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:gather_club/auth_service/auth_provider.dart';
 import 'package:http/http.dart' as http;
 
@@ -65,7 +66,7 @@ class UserLocation {
   }
 }
 
-class UserLocationService {
+class UserLocationService extends ChangeNotifier {
   final AuthProvider _authProvider;
   final String _baseUrl = 'http://212.67.8.92:8080/users';
   final http.Client _client = http.Client();

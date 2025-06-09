@@ -321,20 +321,21 @@ class _PlaceContentState extends State<_PlaceContent>
       setState(() => _isLoadingImages = true);
 
       final imageFile = File(image.path);
-      final imageUrl = await _imageService.uploadImage(
+      final response = await _imageService.uploadImage(
         widget.place.placeId,
         imageFile,
+        _userId,
       );
 
       if (mounted) {
         setState(() {
           _images.add(PlaceImage(
             placeId: widget.place.placeId,
-            imageId: DateTime.now().millisecondsSinceEpoch,
-            imageUrl: imageUrl,
-            uploadedById: 0, // ID текущего пользователя
-            uploaderUsername: '', // Имя текущего пользователя
-            uploadedAt: DateTime.now(),
+            imageId: response.imageId,
+            imageUrl: response.imageUrl,
+            uploadedById: response.uploadedById,
+            uploaderUsername: response.uploaderUsername,
+            uploadedAt: response.uploadedAt,
             likes: 0,
             dislikes: 0,
             isApproved: false,

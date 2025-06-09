@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/custom_notification.dart';
 import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../services/chat_service.dart';
@@ -52,9 +53,7 @@ class _ChatPageState extends State<ChatPage>
       await _chatService.connectToWebSocket();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка подключения к чату: $e')),
-        );
+        CustomNotification.show(context, 'Ошибка подключения к чату: $e');
       }
     }
   }
@@ -187,9 +186,7 @@ class _ChatPageState extends State<ChatPage>
 
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка загрузки данных: $e')),
-        );
+        CustomNotification.show(context, 'Ошибка загрузки данных: $e');
       }
     }
   }
@@ -335,22 +332,13 @@ class _ChatPageState extends State<ChatPage>
       if (accept) {
         await _chatService.acceptMeetupInvitation(chat.meetupId!);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Вы приняли приглашение на встречу'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          CustomNotification.show(context, 'Вы приняли приглашение на встречу');
         }
       } else {
         await _chatService.declineMeetupInvitation(chat.meetupId!);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Вы отклонили приглашение на встречу'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          CustomNotification.show(
+              context, 'Вы отклонили приглашение на встречу');
         }
       }
 
@@ -361,13 +349,8 @@ class _ChatPageState extends State<ChatPage>
       print(e);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Ошибка при ${accept ? 'принятии' : 'отклонении'} приглашения: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        CustomNotification.show(context,
+            'Ошибка при ${accept ? 'принятии' : 'отклонении'} приглашения: $e');
       }
     } finally {
       if (mounted) {
@@ -634,25 +617,29 @@ class _ChatPageState extends State<ChatPage>
                 ),
               ],
             ),
-            trailing: showActions
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.check, color: Colors.green),
-                        onPressed: () => _respondToInvitation(chat, true),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: () => _respondToInvitation(chat, false),
-                      ),
-                    ],
-                  )
-                : null,
             onTap: showActions
                 ? null
                 : () => _onChatTap(chat, isArchived: isArchived),
           ),
+          if (showActions)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon:
+                        const Icon(Icons.check, color: Colors.green, size: 24),
+                    onPressed: () => _respondToInvitation(chat, true),
+                  ),
+                  const SizedBox(width: 32),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.red, size: 24),
+                    onPressed: () => _respondToInvitation(chat, false),
+                  ),
+                ],
+              ),
+            ),
           // Показываем блок с последним сообщением только для активных встреч
           if (shouldShowLastMessage)
             Padding(
@@ -785,12 +772,8 @@ class _ChatPageState extends State<ChatPage>
       // Проверяем валидность координат
       if (chat.latitude == 0.0 || chat.longitude == 0.0) {
         print('_navigateToMap: ОШИБКА! Координаты места равны 0');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Ошибка: координаты места встречи некорректны'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        CustomNotification.show(
+            context, 'Ошибка: координаты места встречи некорректны');
         return;
       }
 
@@ -827,24 +810,15 @@ class _ChatPageState extends State<ChatPage>
           print(
               '_navigateToMap: Маршрут не был построен, остаемся на текущем экране');
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Не удалось построить маршрут'),
-                backgroundColor: Colors.orange,
-              ),
-            );
+            CustomNotification.show(context, 'Не удалось построить маршрут');
           }
         }
       } catch (e) {
         print('_navigateToMap: Ошибка при построении маршрута: $e');
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Ошибка при построении маршрута: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          CustomNotification.show(
+              context, 'Ошибка при построении маршрута: ${e.toString()}');
         }
 
         // Если произошла ошибка, сохраняем данные маршрута, но не переключаемся на карту
@@ -863,12 +837,7 @@ class _ChatPageState extends State<ChatPage>
       }
     } else {
       print('_navigateToMap: Координаты места не указаны');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Место встречи не указано'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      CustomNotification.show(context, 'Место встречи не указано');
     }
   }
 
