@@ -1,4 +1,4 @@
-import 'package:gather_club/place_serice/place.dart';
+import 'package:gather_club/api_services/place_serice/place.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
 
 class MapService {

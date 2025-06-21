@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../place_serice/user_custom_place.dart';
+import '../api_services/place_serice/user_custom_place.dart';
 
 class UserPlaceInfoDialog extends StatelessWidget {
   final UserCustomPlace place;

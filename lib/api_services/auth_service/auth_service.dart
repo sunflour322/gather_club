@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:gather_club/auth_service/auth_models.dart';
+import 'package:gather_club/api_services/auth_service/auth_models.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 

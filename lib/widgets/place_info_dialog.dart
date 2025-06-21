@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:gather_club/map_service/location.dart';
-import 'package:gather_club/place_serice/place.dart';
-import 'package:gather_club/place_serice/place_image_service.dart';
-import 'package:gather_club/place_serice/rating_state_service.dart';
-import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/map_service/location.dart';
+import 'package:gather_club/api_services/place_serice/place.dart';
+import 'package:gather_club/api_services/place_serice/place_image_service.dart';
+import 'package:gather_club/api_services/place_serice/rating_state_service.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';

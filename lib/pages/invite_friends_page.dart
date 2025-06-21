@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:gather_club/user_service/friend.dart';
-import 'package:gather_club/user_service/friend_service.dart';
-import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/user_service/friend.dart';
+import 'package:gather_club/api_services/user_service/friend_service.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'package:gather_club/widgets/custom_notification.dart';
 import 'package:gather_club/theme/app_theme.dart';
 import 'package:provider/provider.dart';

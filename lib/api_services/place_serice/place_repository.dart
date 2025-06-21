@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gather_club/auth_service/auth_provider.dart';
-import 'package:gather_club/place_serice/place.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/place_serice/place.dart';
 import 'package:http/http.dart' as http;
 
 class PlaceRepository {

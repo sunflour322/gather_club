@@ -45,7 +45,6 @@ class AppTheme {
       primary: accentColor,
       secondary: secondaryColor,
       surface: primaryColor,
-      background: primaryColor,
       error: errorColor,
     ),
 

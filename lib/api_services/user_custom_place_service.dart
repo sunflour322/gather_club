@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../place_serice/user_custom_place.dart';
-import '../auth_service/auth_provider.dart';
+import 'place_serice/user_custom_place.dart';
+import 'auth_service/auth_provider.dart';
 
 class UserCustomPlaceService {
   final AuthProvider _authProvider;

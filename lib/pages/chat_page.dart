@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import '../widgets/custom_notification.dart';
 import 'package:provider/provider.dart';
 import '../models/chat.dart';
-import '../services/chat_service.dart';
-import '../auth_service/auth_provider.dart';
+import '../api_services/chat_service.dart';
+import '../api_services/auth_service/auth_provider.dart';
 import 'chat_detail_page.dart';
 import '../models/chat_participant_info.dart';
 import '../nav_service/navigation_provider.dart';
 import '../pages/Example.dart';
-import '../place_serice/place.dart';
-import '../map_service/location.dart';
+import '../api_services/place_serice/place.dart';
+import '../api_services/map_service/location.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -279,9 +279,7 @@ class _ChatPageState extends State<ChatPage>
 
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка загрузки архивных встреч: $e')),
-        );
+        CustomNotification.show(context, 'Ошибка загрузки архивных встреч: $e');
       }
     }
   }
@@ -397,6 +395,7 @@ class _ChatPageState extends State<ChatPage>
     }
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       itemCount: processedChats.length,
       itemBuilder: (context, index) {
         final chat = processedChats[index];
@@ -476,12 +475,52 @@ class _ChatPageState extends State<ChatPage>
                   ? Text(chat.createdByName[0].toUpperCase())
                   : null,
             ),
-            title: Text(
-              chat.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    chat.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                // Добавляем кнопку с тремя точками только для активных встреч
+                if (!showActions && !isArchived)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert),
+                    onSelected: (String value) {
+                      // Пока без функционала
+                      print(
+                          'Выбрано действие: $value для встречи ${chat.chatId}');
+                    },
+                    itemBuilder: (BuildContext context) =>
+                        <PopupMenuEntry<String>>[
+                      const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit, size: 20),
+                            SizedBox(width: 8),
+                            Text('Редактировать'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete, size: 20, color: Colors.red),
+                            SizedBox(width: 8),
+                            Text('Удалить',
+                                style: TextStyle(color: Colors.red)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -848,6 +887,11 @@ class _ChatPageState extends State<ChatPage>
         title: const Text('Встречи'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadData,
+            tooltip: 'Обновить данные',
+          ),
+          IconButton(
             icon: const Icon(Icons.archive),
             onPressed: _showArchivedMeetups,
             tooltip: 'Архивные встречи',
@@ -925,12 +969,16 @@ class _ChatPageState extends State<ChatPage>
                   }
                 }
 
-                return TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildChatList(_chats),
-                    _buildChatList(_invitedMeetups, showActions: true),
-                  ],
+                return RefreshIndicator(
+                  onRefresh: _loadData,
+                  child: TabBarView(
+                    controller: _tabController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      _buildChatList(_chats),
+                      _buildChatList(_invitedMeetups, showActions: true),
+                    ],
+                  ),
                 );
               },
             ),

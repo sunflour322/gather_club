@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:mime/mime.dart';
-import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'dart:io';
 
 class UserService {

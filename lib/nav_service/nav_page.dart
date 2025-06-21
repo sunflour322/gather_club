@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:gather_club/pages/Example.dart';
 import 'package:gather_club/pages/account_page.dart';
 import 'package:gather_club/pages/chat_page.dart';
-import 'package:gather_club/user_service/user_repo.dart';
+import 'package:gather_club/api_services/user_service/user_repo.dart';
 import 'package:google_nav_bar/google_nav_bar.dart';
-import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'package:gather_club/nav_service/navigation_provider.dart';
 import 'package:gather_club/theme/app_theme.dart';
-import 'package:gather_club/user_service/avatar_provider.dart';
+import 'package:gather_club/api_services/user_service/avatar_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 

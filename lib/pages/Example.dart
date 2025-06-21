@@ -3,23 +3,23 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:gather_club/auth_service/auth_provider.dart';
-import 'package:gather_club/auth_service/auth_service.dart';
-import 'package:gather_club/map_service/location.dart';
-import 'package:gather_club/place_serice/place.dart';
-import 'package:gather_club/place_serice/place_image_service.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/auth_service/auth_service.dart';
+import 'package:gather_club/api_services/map_service/location.dart';
+import 'package:gather_club/api_services/place_serice/place.dart';
+import 'package:gather_club/api_services/place_serice/place_image_service.dart';
 import 'package:gather_club/widgets/place_info_dialog.dart';
-import 'package:gather_club/place_serice/place_repository.dart';
+import 'package:gather_club/api_services/place_serice/place_repository.dart';
 import 'package:gather_club/theme/app_theme.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../services/user_custom_place_service.dart';
-import '../place_serice/user_custom_place.dart';
+import '../api_services/user_custom_place_service.dart';
+import '../api_services/place_serice/user_custom_place.dart';
 import '../widgets/user_place_info_dialog.dart';
-import 'package:gather_club/services/user_location_service.dart';
+import 'package:gather_club/api_services/user_location_service.dart';
 import 'package:gather_club/widgets/friend_info_dialog.dart';
 import '../widgets/friend_info_overlay.dart';
 import 'package:flutter/rendering.dart';
@@ -50,12 +50,8 @@ class ExamplePage extends StatefulWidget {
     // Проверяем валидность координат
     if (latitude == 0.0 || longitude == 0.0) {
       print('buildRouteToLocation: ОШИБКА! Координаты места равны 0');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ошибка: координаты места встречи некорректны'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      CustomNotification.show(
+          context, 'Ошибка: координаты места встречи некорректны');
       return;
     }
 
@@ -74,12 +70,8 @@ class ExamplePage extends StatefulWidget {
           'buildRouteToLocation: Маршрут будет построен после инициализации карты');
     } else {
       print('buildRouteToLocation: NavigationProvider не найден');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ошибка: не удалось переключиться на карту'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      CustomNotification.show(
+          context, 'Ошибка: не удалось переключиться на карту');
     }
   }
 
@@ -116,12 +108,8 @@ class ExamplePage extends StatefulWidget {
     // Проверяем валидность координат
     if (latitude == 0.0 || longitude == 0.0) {
       print('directBuildRoute: ОШИБКА! Координаты места равны 0');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ошибка: координаты места встречи некорректны'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      CustomNotification.show(
+          context, 'Ошибка: координаты места встречи некорректны');
       return false;
     }
 
@@ -1564,13 +1552,8 @@ class _ExamplePageState extends State<ExamplePage>
 
           // Показываем уведомление пользователю
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                    'Не удалось определить ваше местоположение для построения маршрута'),
-                backgroundColor: Colors.orange,
-              ),
-            );
+            CustomNotification.show(context,
+                'Не удалось определить ваше местоположение для построения маршрута');
           }
         }
       }

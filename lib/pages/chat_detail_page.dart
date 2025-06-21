@@ -1,18 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:gather_club/services/user_location_service.dart';
+import 'package:gather_club/api_services/user_location_service.dart';
 import '../widgets/custom_notification.dart';
 import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../models/chat_message.dart';
-import '../services/chat_service.dart';
-import '../auth_service/auth_provider.dart';
+import '../api_services/chat_service.dart';
+import '../api_services/auth_service/auth_provider.dart';
 import '../widgets/participants_dialog.dart';
 import '../models/chat_participant_info.dart';
 import '../theme/app_theme.dart';
 import '../nav_service/navigation_provider.dart';
 import '../pages/Example.dart';
+import '../api_services/customization_service.dart';
 import 'package:gather_club/pages/Example.dart';
 
 class ChatDetailPage extends StatefulWidget {
@@ -47,14 +49,17 @@ class _ChatDetailPageState extends State<ChatDetailPage>
   Timer? _checkTimeTimer;
   bool _showCheckButton = false;
   Duration? _timeRemaining;
+  String? _chatThemeUrl;
   late AnimationController _starAnimationController;
   late Animation<double> _starAnimation;
+  late CustomizationService _customizationService;
 
   @override
   void initState() {
     super.initState();
-    _chatService =
-        ChatService(Provider.of<AuthProvider>(context, listen: false));
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _chatService = ChatService(authProvider);
+    _customizationService = CustomizationService(authProvider);
     _initWebSocket();
     _getCurrentUser();
     _loadInitialData();
@@ -117,6 +122,21 @@ class _ChatDetailPageState extends State<ChatDetailPage>
   Future<void> _getCurrentUser() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _currentUserId = await authProvider.getUserId();
+
+    // Загружаем тему чата
+    if (_currentUserId != 0) {
+      try {
+        final chatThemeUrl =
+            await _customizationService.getActiveChatThemeUrl(_currentUserId);
+        if (mounted) {
+          setState(() {
+            _chatThemeUrl = chatThemeUrl;
+          });
+        }
+      } catch (e) {
+        print('Ошибка при загрузке темы чата: $e');
+      }
+    }
   }
 
   Future<void> _initWebSocket() async {
@@ -670,8 +690,12 @@ class _ChatDetailPageState extends State<ChatDetailPage>
     print('- Latitude: ${widget.chat.latitude}');
     print('- Longitude: ${widget.chat.longitude}');
     print('- Place image URL: ${widget.chat.placeImageUrl}');
+    print('- Chat theme URL: $_chatThemeUrl');
 
     return Scaffold(
+      // Применяем фоновое изображение темы чата, если оно есть
+      backgroundColor: Colors.white,
+      extendBodyBehindAppBar: _chatThemeUrl != null,
       appBar: AppBar(
         title: Text(widget.chat.name),
         actions: [
@@ -760,6 +784,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                         if (result.success) {
                           print(
                               '[${DateTime.now()}] Успешная проверка местоположения');
+                          // Закрываем страницу при успешном зачислении звезды
+                          Navigator.of(context).pop();
                         } else {
                           print(
                               '[${DateTime.now()}] Ошибка проверки местоположения: ${result.message}');
@@ -783,278 +809,275 @@ class _ChatDetailPageState extends State<ChatDetailPage>
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          if (widget.chat.placeName != null || widget.chat.placeAddress != null)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.accentColor.withOpacity(0.1),
-                border: Border(
-                  bottom: BorderSide(
-                    color: AppTheme.accentColor.withOpacity(0.2),
-                    width: 1,
+          // Фоновое изображение на весь экран с эффектом размытия
+          if (_chatThemeUrl != null)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: NetworkImage(_chatThemeUrl!),
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                  child: Container(
+                    color: Colors.white.withOpacity(0.3),
                   ),
                 ),
               ),
-              child: Row(
-                children: [
-                  if (widget.chat.placeImageUrl != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        widget.chat.placeImageUrl!,
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
+            ),
+          // Основной контент с отступом сверху, чтобы не перекрывать AppBar
+          Column(
+            children: [
+              // Добавляем отступ сверху, чтобы контент не уезжал под AppBar
+              if (_chatThemeUrl != null)
+                SizedBox(
+                    height:
+                        MediaQuery.of(context).padding.top + kToolbarHeight),
+              if (widget.chat.placeName != null ||
+                  widget.chat.placeAddress != null)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.95),
+                    border: Border(
+                      bottom: BorderSide(
+                        color: AppTheme.accentColor.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      if (widget.chat.placeImageUrl != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            widget.chat.placeImageUrl!,
                             width: 60,
                             height: 60,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[200],
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(Icons.place, size: 30),
-                          );
-                        },
-                      ),
-                    )
-                  else
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.place, size: 30),
-                    ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.chat.placeName ?? 'Место встречи',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: 60,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(Icons.place, size: 30),
+                              );
+                            },
                           ),
+                        )
+                      else
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.place, size: 30),
                         ),
-                        if (widget.chat.placeAddress != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            widget.chat.placeAddress!,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppTheme.textSecondaryColor,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.chat.placeName ?? 'Место встречи',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                        ],
-                        if (widget.chat.scheduledTime != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatDateTime(widget.chat.scheduledTime!),
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppTheme.textSecondaryColor,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (widget.chat.latitude != null &&
-                      widget.chat.longitude != null)
-                    IconButton(
-                      icon: const Icon(Icons.directions_walk),
-                      onPressed: () {
-                        // Проверяем валидность координат
-                        if (widget.chat.latitude == 0.0 ||
-                            widget.chat.longitude == 0.0) {
-                          print('Ошибка: координаты места встречи некорректны');
-                          CustomNotification.show(
-                            context,
-                            'Ошибка: координаты места встречи некорректны',
-                          );
-                          return;
-                        }
-
-                        // Создаем данные маршрута
-                        final routeInfo = {
-                          'origin': {
-                            'lat':
-                                0.0, // Будет заполнено текущим местоположением
-                            'lng': 0.0
-                          },
-                          'destination': {
-                            'lat': widget.chat.latitude!,
-                            'lng': widget.chat.longitude!
-                          },
-                          'placeName':
-                              widget.chat.placeName ?? widget.chat.name,
-                        };
-
-                        print(
-                            'Построение маршрута: lat=${widget.chat.latitude}, lng=${widget.chat.longitude}, name=${widget.chat.placeName ?? widget.chat.name}');
-
-                        // Закрываем диалог и вызываем построение маршрута
-                        Navigator.of(context)
-                            .pop(); // Закрываем текущий экран чата
-
-                        // Переключаемся на вкладку карты
-                        final navigation = NavigationProvider.of(context);
-                        if (navigation != null) {
-                          // Сначала переключаемся на вкладку карты
-                          navigation.onNavigate(0);
-
-                          // Используем метод directBuildRoute для прямого построения маршрута
-                          try {
-                            ExamplePage.directBuildRoute(
-                                context,
-                                widget.chat.latitude!,
-                                widget.chat.longitude!,
-                                widget.chat.placeName ?? widget.chat.name);
-                            print(
-                                'Маршрут успешно запрошен через directBuildRoute');
-                          } catch (e) {
-                            print('Ошибка при построении маршрута: $e');
-
-                            // Если произошла ошибка, используем старый подход
-                            Future.delayed(const Duration(milliseconds: 300),
-                                () {
-                              ExamplePage.destinationLat = widget.chat.latitude;
-                              ExamplePage.destinationLng =
-                                  widget.chat.longitude;
-                              ExamplePage.destinationName =
-                                  widget.chat.placeName ?? widget.chat.name;
-                              ExamplePage.pendingRouteRequest = true;
-                              print(
-                                  'Маршрут запрошен через статические переменные');
-                            });
-                          }
-                        }
-                      },
-                      tooltip: 'Построить маршрут',
-                    ),
-                ],
-              ),
-            ),
-          Expanded(
-            child: widget.isArchived
-                ? _buildArchivedChatView()
-                : StreamBuilder<List<ChatMessage>>(
-                    stream:
-                        _chatService.getChatMessagesStream(widget.chat.chatId),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return Center(child: Text('Ошибка: ${snapshot.error}'));
-                      }
-
-                      if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      final messages = snapshot.data!;
-                      print('Обновление UI: ${messages.length} сообщений');
-
-                      // Автоматическая прокрутка при новых сообщениях
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (_scrollController.hasClients) {
-                          _scrollController.animateTo(
-                            _scrollController.position.maxScrollExtent,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOut,
-                          );
-                        }
-                      });
-
-                      return ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(8),
-                        itemCount: messages.length,
-                        itemBuilder: (context, index) {
-                          // Берем сообщения с конца списка
-                          final message = messages[messages.length - 1 - index];
-                          final isCurrentUser =
-                              message.senderId == _currentUserId;
-                          return _buildMessageItem(message, isCurrentUser);
-                        },
-                      );
-                    },
-                  ),
-          ),
-          if (_isTyping && !widget.isArchived)
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppTheme.accentColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      'Печатает...',
-                      style: TextStyle(
-                        color: AppTheme.textSecondaryColor,
-                        fontSize: 12,
+                            if (widget.chat.placeAddress != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                widget.chat.placeAddress!,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppTheme.textSecondaryColor,
+                                ),
+                              ),
+                            ],
+                            if (widget.chat.scheduledTime != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _formatDateTime(widget.chat.scheduledTime!),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppTheme.textSecondaryColor,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-          if (_replyTo != null && !widget.isArchived)
-            Container(
-              padding: const EdgeInsets.all(8),
-              color: AppTheme.accentColor.withOpacity(0.1),
-              child: Row(
-                children: [
-                  const Icon(Icons.reply, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _replyTo!.senderName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                        Text(
-                          _replyTo!.content,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.textSecondaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          if (widget.isArchived)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              color: AppTheme.accentColor.withOpacity(0.1),
-              child: Text(
-                'Эта встреча завершена. Отправка сообщений недоступна.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppTheme.textSecondaryColor,
-                  fontStyle: FontStyle.italic,
                 ),
+              Expanded(
+                child: widget.isArchived
+                    ? _buildArchivedChatView()
+                    : StreamBuilder<List<ChatMessage>>(
+                        stream: _chatService
+                            .getChatMessagesStream(widget.chat.chatId),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return Center(
+                                child: Text('Ошибка: ${snapshot.error}'));
+                          }
+
+                          if (!snapshot.hasData) {
+                            return const Center(
+                                child: CircularProgressIndicator());
+                          }
+
+                          final messages = snapshot.data!;
+                          print('Обновление UI: ${messages.length} сообщений');
+
+                          // Обновляем локальный список сообщений для корректного отображения ответов
+                          if (mounted && messages.isNotEmpty) {
+                            _messages = messages;
+                          }
+
+                          // Автоматическая прокрутка при новых сообщениях
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (_scrollController.hasClients) {
+                              _scrollController.animateTo(
+                                _scrollController.position.maxScrollExtent,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              );
+                            }
+                          });
+
+                          return ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.all(8),
+                            itemCount: messages.length,
+                            itemBuilder: (context, index) {
+                              // Берем сообщения с конца списка
+                              final message =
+                                  messages[messages.length - 1 - index];
+                              final isCurrentUser =
+                                  message.senderId == _currentUserId;
+                              return _buildMessageItem(message, isCurrentUser);
+                            },
+                          );
+                        },
+                      ),
               ),
-            ),
+              if (!widget.isArchived)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          decoration: const InputDecoration(
+                            hintText: 'Введите сообщение...',
+                            border: OutlineInputBorder(),
+                          ),
+                          maxLines: null,
+                          textCapitalization: TextCapitalization.sentences,
+                          onChanged: (_) =>
+                              _chatService.notifyTyping(widget.chat.chatId),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.send),
+                        onPressed: _sendMessage,
+                        color: AppTheme.accentColor,
+                      ),
+                    ],
+                  ),
+                ),
+              if (_isTyping && !widget.isArchived)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accentColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          'Печатает...',
+                          style: TextStyle(
+                            color: AppTheme.textSecondaryColor,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_replyTo != null && !widget.isArchived)
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  color: AppTheme.accentColor.withOpacity(0.1),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.reply, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _replyTo!.senderName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              _replyTo!.content,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textSecondaryColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (widget.isArchived)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  color: AppTheme.accentColor.withOpacity(0.1),
+                  child: Text(
+                    'Эта встреча завершена. Отправка сообщений недоступна.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppTheme.textSecondaryColor,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );

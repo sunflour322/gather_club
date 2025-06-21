@@ -1,4 +1,4 @@
-import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 
 class RatingStateService {
   static final RatingStateService _instance = RatingStateService._internal();

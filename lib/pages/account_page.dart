@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:gather_club/place_serice/place.dart';
-import 'package:gather_club/user_service/user.dart';
-import 'package:gather_club/user_service/friend.dart';
+import 'package:gather_club/api_services/place_serice/place.dart';
+import 'package:gather_club/api_services/user_service/user.dart';
+import 'package:gather_club/api_services/user_service/friend.dart';
 import 'package:gather_club/widgets/friends_bottom_sheet.dart';
-import 'package:gather_club/user_service/friend_service.dart';
-import 'package:gather_club/auth_service/auth_provider.dart';
-import 'package:gather_club/services/user_custom_place_service.dart';
-import 'package:gather_club/place_serice/user_custom_place.dart';
+import 'package:gather_club/api_services/user_service/friend_service.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/user_custom_place_service.dart';
+import 'package:gather_club/api_services/place_serice/user_custom_place.dart';
 import 'package:gather_club/pages/Example.dart';
 import 'package:gather_club/nav_service/navigation_provider.dart';
-import 'package:gather_club/services/user_service.dart';
+import 'package:gather_club/api_services/user_service/user_service.dart';
 import 'package:gather_club/theme/app_theme.dart';
-import 'package:gather_club/user_service/avatar_provider.dart';
+import 'package:gather_club/api_services/user_service/avatar_provider.dart';
+import 'package:gather_club/api_services/customization_service.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -34,9 +35,12 @@ class _AccountPageState extends State<AccountPage> {
   List<Friend> _outgoingRequests = [];
   bool _isLoading = true;
   int _starBalance = 0;
+  String? _profileFrameUrl;
+  String? _profileBackgroundUrl;
   late final FriendService _friendService;
   late final UserCustomPlaceService _userPlaceService;
   late final UserService _userService;
+  late final CustomizationService _customizationService;
   final ImagePicker _picker = ImagePicker();
 
   @override
@@ -46,6 +50,7 @@ class _AccountPageState extends State<AccountPage> {
     _friendService = FriendService(http.Client());
     _userPlaceService = UserCustomPlaceService(authProvider);
     _userService = UserService(authProvider);
+    _customizationService = CustomizationService(authProvider);
     _loadUserData();
   }
 
@@ -96,12 +101,14 @@ class _AccountPageState extends State<AccountPage> {
         _starBalance = balanceData['balance'] ?? 0;
       }
 
-      // Загружаем друзей, запросы и пользовательские места параллельно
+      // Загружаем друзей, запросы, пользовательские места и кастомизации параллельно
       final futures = await Future.wait([
         _friendService.getAllFriends(token),
         _friendService.getIncomingRequests(token),
         _friendService.getOutgoingRequests(token),
         _userPlaceService.getAllPlaces(userId),
+        _customizationService.getActiveProfileFrameUrl(userId),
+        _customizationService.getActiveProfileBackgroundUrl(userId),
       ]);
 
       if (mounted) {
@@ -111,6 +118,8 @@ class _AccountPageState extends State<AccountPage> {
           _incomingRequests = futures[1] as List<Friend>;
           _outgoingRequests = futures[2] as List<Friend>;
           _userPlaces = futures[3] as List<UserCustomPlace>;
+          _profileFrameUrl = futures[4] as String?;
+          _profileBackgroundUrl = futures[5] as String?;
           _isLoading = false;
         });
       }
@@ -243,62 +252,50 @@ class _AccountPageState extends State<AccountPage> {
   Widget _buildProfileHeader() {
     return Container(
       height: MediaQuery.of(context).size.height / 3,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [AppTheme.accentColor, AppTheme.accentColor.withOpacity(0.7)],
-        ),
-      ),
+      // Полностью убираем декорацию, чтобы не было прямоугольной области
+      // Аватар и имя пользователя будут отображаться прямо на фоне
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Stack(
             children: [
-              CircleAvatar(
-                radius: 50,
-                backgroundImage: _userData?['avatarUrl'] != null
-                    ? NetworkImage(_userData!['avatarUrl'])
-                    : const AssetImage('assets/logo.png') as ImageProvider,
-                onBackgroundImageError: (e, stackTrace) {
-                  print('Ошибка загрузки аватара: $e');
-                  // Если возникла ошибка загрузки аватара, сбрасываем URL
-                  if (mounted) {
-                    setState(() {
-                      if (_userData != null) {
-                        _userData!['avatarUrl'] = null;
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Аватарка пользователя
+                  CircleAvatar(
+                    radius: 50,
+                    backgroundImage: _userData?['avatarUrl'] != null
+                        ? NetworkImage(_userData!['avatarUrl'])
+                        : const AssetImage('assets/logo.png') as ImageProvider,
+                    onBackgroundImageError: (e, stackTrace) {
+                      print('Ошибка загрузки аватара: $e');
+                      // Если возникла ошибка загрузки аватара, сбрасываем URL
+                      if (mounted) {
+                        setState(() {
+                          if (_userData != null) {
+                            _userData!['avatarUrl'] = null;
+                          }
+                        });
+                        // Также обновляем глобальный провайдер
+                        Provider.of<AvatarProvider>(context, listen: false)
+                            .setAvatarUrl(null);
                       }
-                    });
-                    // Также обновляем глобальный провайдер
-                    Provider.of<AvatarProvider>(context, listen: false)
-                        .setAvatarUrl(null);
-                  }
-                },
-              ),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        spreadRadius: 1,
-                        blurRadius: 3,
-                        offset: const Offset(0, 1),
+                    },
+                  ),
+                  // Рамка профиля (если есть)
+                  if (_profileFrameUrl != null)
+                    Container(
+                      width: 110,
+                      height: 110,
+                      decoration: BoxDecoration(
+                        image: DecorationImage(
+                          image: NetworkImage(_profileFrameUrl!),
+                          fit: BoxFit.contain,
+                        ),
                       ),
-                    ],
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.camera_alt),
-                    onPressed: _updateAvatar,
-                    color: AppTheme.accentColor,
-                    iconSize: 20,
-                    padding: const EdgeInsets.all(8),
-                  ),
-                ),
+                    ),
+                ],
               ),
             ],
           ),
@@ -625,35 +622,19 @@ class _AccountPageState extends State<AccountPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Статистика',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _showFriendsBottomSheet,
-                  icon: const Icon(Icons.people),
-                  label: Text(
-                    _incomingRequests.isNotEmpty
-                        ? 'Друзья (${_acceptedFriends.length}) • ${_incomingRequests.length}'
-                        : 'Друзья (${_acceptedFriends.length})',
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.accentColor,
-                  ),
-                ),
-              ],
+            const Text(
+              'Статистика',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
+            const SizedBox(height: 8),
             const Divider(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildStatItem('12', 'Встреч'),
+                _buildStatItem('12', 'Звезд'),
                 _buildStatItem('${_acceptedFriends.length}', 'Друзей'),
                 _buildStatItem('${_userPlaces.length}', 'Мест'),
               ],
@@ -667,7 +648,7 @@ class _AccountPageState extends State<AccountPage> {
   Widget _buildStatItem(String value, String label) {
     return Column(
       children: [
-        if (label == 'Встреч')
+        if (label == 'Звезд')
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -746,100 +727,286 @@ class _AccountPageState extends State<AccountPage> {
     }
 
     return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: _loadUserData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            children: [
-              _buildProfileHeader(),
-              _buildUserInfoSection(),
-              _buildStatsSection(),
-              _buildUserPlacesSection(),
-              const SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.red.shade400, Colors.red.shade700],
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                    ),
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
+      body: Stack(
+        children: [
+          // Фоновое изображение на весь экран
+          if (_profileBackgroundUrl != null)
+            Positioned.fill(
+              child: Image.network(
+                _profileBackgroundUrl!,
+                fit: BoxFit.cover,
+                // Убираем прозрачность, чтобы изображение не белело
+              ),
+            ),
+          // Если нет фонового изображения, используем градиент
+          if (_profileBackgroundUrl == null)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      AppTheme.accentColor.withOpacity(0.2),
+                      Colors.white.withOpacity(0.1),
                     ],
                   ),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () async {
-                        try {
-                          final authProvider =
-                              Provider.of<AuthProvider>(context, listen: false);
-                          await authProvider.logout();
-                          if (mounted) {
-                            // Очищаем состояние
-                            setState(() {
-                              _userData = null;
-                              _userPlaces = [];
-                              _acceptedFriends = [];
-                              _incomingRequests = [];
-                              _outgoingRequests = [];
-                            });
-                            // Перенаправляем на страницу логина
-                            Navigator.of(context).pushNamedAndRemoveUntil(
-                              '/login',
-                              (route) => false,
-                            );
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            setState(() => _isLoading = false);
-                            CustomNotification.show(
-                              context,
-                              'Ошибка при выходе: $e',
-                            );
-                          }
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(15),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Icon(
-                              Icons.logout_rounded,
-                              color: Colors.white,
-                              size: 24,
-                            ),
-                            SizedBox(width: 10),
-                            Text(
-                              'Выйти из аккаунта',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                ),
+              ),
+            ),
+          // Основной контент
+          RefreshIndicator(
+            onRefresh: _loadUserData,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                children: [
+                  _buildProfileHeader(),
+                  _buildUserInfoSection(),
+                  _buildStatsSection(),
+                  _buildUserPlacesSection(),
+                  const SizedBox(height: 20),
+                  // Кнопка админки (видна только для администраторов)
+                  if (_userData != null && _userData!['role'] == 'ROLE_ADMIN')
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.purple.shade400,
+                              Colors.purple.shade700
+                            ],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                          ),
+                          borderRadius: BorderRadius.circular(15),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.purple.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
                             ),
                           ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.of(context).pushNamed('/admin');
+                            },
+                            borderRadius: BorderRadius.circular(15),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(
+                                    Icons.admin_panel_settings,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'Панель администратора',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_userData != null && _userData!['role'] == 'ROLE_ADMIN')
+                    const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.red.shade400, Colors.red.shade700],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.red.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () async {
+                            try {
+                              final authProvider = Provider.of<AuthProvider>(
+                                  context,
+                                  listen: false);
+                              await authProvider.logout();
+                              if (mounted) {
+                                // Очищаем состояние
+                                setState(() {
+                                  _userData = null;
+                                  _userPlaces = [];
+                                  _acceptedFriends = [];
+                                  _incomingRequests = [];
+                                  _outgoingRequests = [];
+                                });
+                                // Перенаправляем на страницу логина
+                                Navigator.of(context).pushNamedAndRemoveUntil(
+                                  '/login',
+                                  (route) => false,
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                setState(() => _isLoading = false);
+                                CustomNotification.show(
+                                  context,
+                                  'Ошибка при выходе: $e',
+                                );
+                              }
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(15),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                Icon(
+                                  Icons.logout_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                                SizedBox(width: 10),
+                                Text(
+                                  'Выйти из аккаунта',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 20),
+                ],
               ),
-              const SizedBox(height: 20),
-            ],
+            ),
           ),
-        ),
+          // Кнопки в верхних углах
+          Positioned(
+            top: 40,
+            left: 16,
+            child: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.8),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.people),
+                onPressed: _showFriendsBottomSheet,
+                color: Colors.white,
+                tooltip: _incomingRequests.isNotEmpty
+                    ? 'Друзья (${_acceptedFriends.length}) • ${_incomingRequests.length}'
+                    : 'Друзья (${_acceptedFriends.length})',
+                padding: EdgeInsets.zero,
+              ),
+            ),
+          ),
+          Positioned(
+            top: 40,
+            right: 16,
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.8),
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.camera_alt),
+                    onPressed: _updateAvatar,
+                    color: Colors.white,
+                    iconSize: 20,
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.8),
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.shopping_cart),
+                    onPressed: () {
+                      Navigator.of(context).pushNamed('/shop');
+                    },
+                    color: Colors.white,
+                    tooltip: 'Магазин',
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

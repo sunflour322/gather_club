@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:gather_club/user_service/friend.dart';
+import 'package:gather_club/api_services/user_service/friend.dart';
 
 class FriendService {
   final http.Client _client;

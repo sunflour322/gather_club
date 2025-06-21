@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:gather_club/services/user_location_service.dart';
+import 'package:gather_club/api_services/user_location_service.dart';
 
 import '../models/location_check_result.dart';
 import 'package:stomp_dart_client/stomp.dart';
@@ -9,7 +9,7 @@ import 'package:http/http.dart' as http;
 import '../models/chat.dart';
 import '../models/chat_message.dart';
 import '../models/chat_participant_info.dart';
-import '../auth_service/auth_provider.dart';
+import 'auth_service/auth_provider.dart';
 import 'dart:async';
 
 typedef StompUnsubscribeFn = void Function();

@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:gather_club/auth_service/auth_provider.dart';
-import 'package:gather_club/user_service/user.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/user_service/user.dart';
 import 'package:http/http.dart' as http;
 
 class UserRepository {

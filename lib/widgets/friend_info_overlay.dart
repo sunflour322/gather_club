@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:gather_club/services/user_location_service.dart';
+import 'package:gather_club/api_services/user_location_service.dart';
 
 class FriendInfoOverlay extends StatelessWidget {
   final UserLocation friendLocation;

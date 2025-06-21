@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:gather_club/pages/Example.dart';
-import 'package:gather_club/auth_service/auth_provider.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'package:gather_club/nav_service/nav_page.dart';
 import 'package:gather_club/nav_service/routes.dart';
+import 'package:gather_club/pages/admin/admin_page.dart';
+import 'package:gather_club/pages/admin/place_form_page.dart';
 import 'package:gather_club/pages/auth_page.dart';
 import 'package:gather_club/pages/reg_page.dart';
-import 'package:gather_club/user_service/avatar_provider.dart';
-import 'package:gather_club/services/user_location_service.dart';
+import 'package:gather_club/api_services/user_service/avatar_provider.dart';
+import 'package:gather_club/api_services/user_location_service.dart';
+import 'package:gather_club/api_services/user_service/user.dart';
+import 'package:gather_club/api_services/user_service/user_repo.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:gather_club/pages/account_page.dart';
 import 'package:gather_club/pages/friend_search_page.dart';
 import 'package:gather_club/pages/create_meetup_page.dart';
 import 'package:gather_club/pages/chat_page.dart';
+import 'package:gather_club/pages/shop_page.dart';
 import 'package:gather_club/theme/app_theme.dart';
 
 void main() async {
@@ -32,6 +38,25 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  // Функция для получения текущего пользователя
+  Future<User?> _getCurrentUser(BuildContext context) async {
+    try {
+      print('_getCurrentUser: начало выполнения');
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final userRepo = UserRepository(http.Client(), authProvider);
+      final user = await userRepo.getCurrentUser();
+
+      // Отладочный вывод
+      print('Получен пользователь: ${user?.username}');
+      print('Роль пользователя: ${user?.role}');
+
+      return user;
+    } catch (e) {
+      print('Ошибка при получении пользователя: $e');
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -50,17 +75,48 @@ class MyApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         initialRoute: '/',
         routes: {
-          '/': (context) => FutureBuilder(
-                future: Provider.of<AuthProvider>(context, listen: false)
-                    .isLoggedIn(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Scaffold(
-                        body: Center(child: CircularProgressIndicator()));
-                  }
-                  return snapshot.data == true ? NavPage() : AuthPage();
-                },
+          '/': (context) {
+            print('Инициализация корневого маршрута');
+
+            // Проверяем авторизацию пользователя
+            final authProvider =
+                Provider.of<AuthProvider>(context, listen: false);
+
+            Future.microtask(() async {
+              try {
+                final token = await authProvider.getToken();
+                if (token != null) {
+                  // Пользователь авторизован, перенаправляем на главную страницу
+                  print(
+                      'Пользователь авторизован, перенаправляем на главную страницу');
+                  Navigator.of(context).pushReplacementNamed('/home');
+                } else {
+                  // Пользователь не авторизован, перенаправляем на страницу авторизации
+                  print(
+                      'Пользователь не авторизован, перенаправляем на страницу авторизации');
+                  Navigator.of(context).pushReplacementNamed('/login');
+                }
+              } catch (e) {
+                print('Ошибка при проверке авторизации: $e');
+                // В случае ошибки перенаправляем на страницу авторизации
+                Navigator.of(context).pushReplacementNamed('/login');
+              }
+            });
+
+            // Возвращаем загрузочный экран, который будет заменен
+            return Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 20),
+                    Text('Загрузка...'),
+                  ],
+                ),
               ),
+            );
+          },
           '/login': (context) => AuthPage(),
           '/register': (context) => RegisterScreen(),
           '/home': (context) => NavPage(),
@@ -68,6 +124,23 @@ class MyApp extends StatelessWidget {
           '/friends/search': (context) => const FriendSearchPage(),
           '/create_meetup': (context) => const CreateMeetupPage(),
           '/chat': (context) => const ChatPage(),
+          '/shop': (context) => const ShopPage(),
+          '/admin': (context) => const AdminPage(),
+          '/admin/place/edit': (context) {
+            final args = ModalRoute.of(context)!.settings.arguments
+                as Map<String, dynamic>;
+            return PlaceFormPage(
+              place: args['place'],
+              onSave: args['onSave'],
+            );
+          },
+          '/admin/place/create': (context) {
+            final args = ModalRoute.of(context)!.settings.arguments
+                as Map<String, dynamic>;
+            return PlaceFormPage(
+              onSave: args['onSave'],
+            );
+          },
         },
       ),
     );
