@@ -11,8 +11,12 @@ import 'dart:developer' as developer;
 
 class CreateMeetupPage extends StatefulWidget {
   final Map<String, dynamic>? selectedPlace;
+  final Map<String, dynamic>? meetupToEdit;
+  final bool isEditing;
 
-  const CreateMeetupPage({Key? key, this.selectedPlace}) : super(key: key);
+  const CreateMeetupPage(
+      {Key? key, this.selectedPlace, this.meetupToEdit, this.isEditing = false})
+      : super(key: key);
 
   @override
   State<CreateMeetupPage> createState() => _CreateMeetupPageState();
@@ -31,11 +35,49 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.selectedPlace != null) {
-      _nameController.text = 'Встреча в ${widget.selectedPlace!['name']}';
-    }
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _meetupService = MeetupService(authProvider);
+
+    if (widget.isEditing && widget.meetupToEdit != null) {
+      // Заполняем форму данными из существующей встречи
+      _nameController.text = widget.meetupToEdit!['name'] ?? '';
+      _descriptionController.text = widget.meetupToEdit!['description'] ?? '';
+
+      // Устанавливаем дату и время
+      if (widget.meetupToEdit!['scheduledTime'] != null) {
+        try {
+          final scheduledTime =
+              DateTime.parse(widget.meetupToEdit!['scheduledTime']);
+          _selectedDate = scheduledTime;
+          _selectedTime =
+              TimeOfDay(hour: scheduledTime.hour, minute: scheduledTime.minute);
+        } catch (e) {
+          developer.log('Error parsing scheduledTime: $e');
+        }
+      }
+
+      // Загружаем список приглашенных друзей, если они есть
+      if (widget.meetupToEdit!['participants'] != null) {
+        try {
+          final participants = widget.meetupToEdit!['participants'] as List;
+          _selectedFriends = participants.map((p) {
+            final user = p['user'] ?? p;
+            return Friend(
+              userId: user['userId'],
+              username: user['username'] ?? 'Unknown',
+              avatarUrl: user['avatarUrl'],
+              status: p['status'] ?? 'unknown',
+              isOutgoing:
+                  false, // Для участников встречи это не исходящий запрос дружбы
+            );
+          }).toList();
+        } catch (e) {
+          developer.log('Error parsing participants: $e');
+        }
+      }
+    } else if (widget.selectedPlace != null) {
+      _nameController.text = 'Встреча в ${widget.selectedPlace!['name']}';
+    }
   }
 
   @override
@@ -46,11 +88,22 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
   }
 
   Future<void> _selectDate() async {
+    // Определяем начальную дату и минимальную дату
+    final now = DateTime.now();
+    final initialDate = _selectedDate ?? now;
+
+    // Если выбранная дата в прошлом (при редактировании), используем её как firstDate
+    // иначе используем текущую дату
+    final firstDate = initialDate.isBefore(now)
+        ? DateTime(initialDate.year, initialDate.month, initialDate.day)
+        : DateTime(now.year, now.month, now.day);
+
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime.now(),
+      initialDate: initialDate,
+      firstDate: firstDate,
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      locale: const Locale('ru', 'RU'),
     );
 
     if (picked != null && mounted) {
@@ -65,6 +118,16 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: _selectedTime ?? TimeOfDay.now(),
+      builder: (BuildContext context, Widget? child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: Localizations.override(
+            context: context,
+            locale: const Locale('ru', 'RU'),
+            child: child!,
+          ),
+        );
+      },
     );
 
     if (picked != null && mounted) {
@@ -102,7 +165,7 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
     );
   }
 
-  Future<void> _createMeetup() async {
+  Future<void> _saveMeetup() async {
     developer.log('Starting meetup creation process');
     developer.log('Selected place: ${widget.selectedPlace}');
     developer.log('- Place name: ${widget.selectedPlace!['name']}');
@@ -148,31 +211,74 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
       final invitedUserIds = _selectedFriends.map((e) => e.userId).toList();
       developer.log('Selected friends IDs: $invitedUserIds');
 
-      final meetupRequest = {
-        'placeId': widget.selectedPlace!['id'],
-        'name': _nameController.text,
-        'description': _descriptionController.text,
-        'scheduledTime': scheduledDateTime!.toIso8601String(),
-        'invitedUserIds': invitedUserIds,
-        'place': {
+      final Map<String, dynamic> placeData;
+      if (widget.isEditing &&
+          widget.meetupToEdit != null &&
+          widget.meetupToEdit!['place'] != null) {
+        placeData = widget.meetupToEdit!['place'];
+      } else {
+        placeData = {
           'name': widget.selectedPlace!['name'],
           'address': widget.selectedPlace!['address'],
           'latitude': widget.selectedPlace!['latitude'],
           'longitude': widget.selectedPlace!['longitude'],
           'imageUrl': widget.selectedPlace!['imageUrl'],
-        },
+        };
+      }
+
+      // Определяем ID места
+      int placeId;
+      if (widget.isEditing &&
+          widget.meetupToEdit != null &&
+          widget.meetupToEdit!['place'] != null &&
+          widget.meetupToEdit!['place']['id'] != null) {
+        // Используем ID места из объекта встречи
+        placeId = widget.meetupToEdit!['place']['id'];
+        developer.log('Using place ID from meetupToEdit: $placeId');
+      } else if (widget.selectedPlace != null &&
+          widget.selectedPlace!['id'] != null) {
+        // Используем ID выбранного места
+        placeId = widget.selectedPlace!['id'];
+        developer.log('Using place ID from selectedPlace: $placeId');
+      } else {
+        // Если ID места не найден, используем значение по умолчанию
+        placeId = 5;
+        developer.log('Using default place ID: $placeId');
+      }
+
+      final meetupRequest = {
+        'placeId': placeId,
+        'name': _nameController.text,
+        'description': _descriptionController.text,
+        'scheduledTime': scheduledDateTime!.toIso8601String(),
+        'invitedUserIds': invitedUserIds,
+        'place': placeData,
       };
       developer.log('Prepared meetup request: $meetupRequest');
 
-      final response = await _meetupService.createMeetup(userId, meetupRequest);
-      developer.log('Received response from createMeetup: $response');
+      Map<String, dynamic> response;
+      String successMessage;
+
+      if (widget.isEditing && widget.meetupToEdit != null) {
+        // Обновляем существующую встречу
+        final meetupId = widget.meetupToEdit!['meetupId'];
+        response =
+            await _meetupService.updateMeetup(meetupId, userId, meetupRequest);
+        successMessage = 'Встреча успешно обновлена';
+        developer.log('Received response from updateMeetup: $response');
+      } else {
+        // Создаем новую встречу
+        response = await _meetupService.createMeetup(userId, meetupRequest);
+        successMessage = 'Встреча успешно создана';
+        developer.log('Received response from createMeetup: $response');
+      }
 
       if (mounted) {
         developer.log('Navigation back with response');
         Navigator.of(context).pop(response);
         CustomNotification.show(
           context,
-          'Встреча успешно создана',
+          successMessage,
         );
 
         // Обновляем список чатов
@@ -198,10 +304,13 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
   Future<void> _navigateToInviteFriends() async {
     developer.log('Navigating to invite friends page');
     try {
+      // Передаем уже выбранных друзей при переходе на страницу приглашения
       final result = await Navigator.push<List<Friend>>(
         context,
         MaterialPageRoute(
-          builder: (context) => const InviteFriendsPage(),
+          builder: (context) => InviteFriendsPage(
+            initialSelectedFriends: _selectedFriends,
+          ),
         ),
       );
 
@@ -237,43 +346,87 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
           ),
         ),
         Container(
-          height: 90,
+          height: 110, // Увеличиваем высоту для отображения статуса
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: _selectedFriends.length,
             itemBuilder: (context, index) {
               final friend = _selectedFriends[index];
+
+              // Определяем цвет и текст статуса
+              Color statusColor = AppTheme.accentColor;
+              String? statusText;
+
+              // Проверяем статус друга
+              switch (friend.status.toUpperCase()) {
+                case 'ACCEPTED':
+                  statusColor = Colors.green;
+                  statusText = 'Принято';
+                  break;
+                case 'PENDING':
+                  statusColor = Colors.orange;
+                  statusText = 'Ожидает';
+                  break;
+                case 'DECLINED':
+                  statusColor = Colors.red;
+                  statusText = 'Отклонено';
+                  break;
+              }
+
               return Padding(
                 padding: const EdgeInsets.only(right: 16),
                 child: Column(
                   children: [
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppTheme.accentColor,
-                          width: 2,
-                        ),
-                      ),
-                      child: ClipOval(
-                        child: friend.avatarUrl != null
-                            ? Image.network(
-                                friend.avatarUrl!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Image.asset(
+                    Stack(
+                      children: [
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: statusText != null
+                                  ? statusColor
+                                  : AppTheme.accentColor,
+                              width: 2,
+                            ),
+                          ),
+                          child: ClipOval(
+                            child: friend.avatarUrl != null
+                                ? Image.network(
+                                    friend.avatarUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Image.asset(
+                                        'assets/default_avatar.png',
+                                        fit: BoxFit.cover,
+                                      );
+                                    },
+                                  )
+                                : Image.asset(
                                     'assets/default_avatar.png',
                                     fit: BoxFit.cover,
-                                  );
-                                },
-                              )
-                            : Image.asset(
-                                'assets/default_avatar.png',
-                                fit: BoxFit.cover,
+                                  ),
+                          ),
+                        ),
+                        if (statusText != null && widget.isEditing)
+                          Positioned(
+                            right: 0,
+                            top: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: statusColor,
+                                shape: BoxShape.circle,
                               ),
-                      ),
+                              child: const Icon(
+                                Icons.person,
+                                color: Colors.white,
+                                size: 12,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -282,6 +435,17 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (statusText != null && widget.isEditing)
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: statusColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                   ],
                 ),
               );
@@ -296,7 +460,8 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Создание встречи'),
+        title: Text(
+            widget.isEditing ? 'Редактирование встречи' : 'Создание встречи'),
       ),
       body: Column(
         children: [
@@ -464,7 +629,7 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _isLoading ? null : _createMeetup,
+                onPressed: _isLoading ? null : _saveMeetup,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
@@ -482,9 +647,11 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
                               AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
-                    : const Text(
-                        'Создать встречу',
-                        style: TextStyle(
+                    : Text(
+                        widget.isEditing
+                            ? 'Сохранить изменения'
+                            : 'Создать встречу',
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),

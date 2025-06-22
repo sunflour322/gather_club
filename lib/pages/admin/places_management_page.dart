@@ -146,8 +146,15 @@ class _PlacesManagementPageState extends State<PlacesManagementPage> {
 
   Future<void> _createPlace(Map<String, dynamic> placeData) async {
     try {
-      await widget.adminService.createPlace(placeData);
-      _loadPlaces(); // Перезагружаем список мест
+      // Проверяем, содержит ли placeData уже placeId
+      // Если да, значит место уже было создано в PlaceFormPage и не нужно создавать его снова
+      if (placeData.containsKey('placeId')) {
+        _loadPlaces(); // Просто перезагружаем список мест
+      } else {
+        // Если нет placeId, создаем место обычным способом
+        await widget.adminService.createPlace(placeData);
+        _loadPlaces(); // Перезагружаем список мест
+      }
       CustomNotification.show(context, 'Место создано');
     } catch (e) {
       CustomNotification.show(context, 'Ошибка создания: $e');

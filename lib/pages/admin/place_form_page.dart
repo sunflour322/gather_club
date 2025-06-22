@@ -1,16 +1,24 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:gather_club/api_services/admin_service.dart';
 import 'package:gather_club/api_services/place_serice/place.dart';
 import 'package:gather_club/theme/app_theme.dart';
 import 'package:gather_club/widgets/custom_notification.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:gather_club/pages/Example.dart';
+import 'package:gather_club/api_services/auth_service/auth_provider.dart';
+import 'package:provider/provider.dart';
 
 class PlaceFormPage extends StatefulWidget {
   final Place? place;
   final Function(Map<String, dynamic>) onSave;
+  final AdminService adminService;
 
   const PlaceFormPage({
     Key? key,
     this.place,
     required this.onSave,
+    required this.adminService,
   }) : super(key: key);
 
   @override
@@ -26,8 +34,12 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
   final _addressController = TextEditingController();
   final _phoneController = TextEditingController();
   final _workingHoursController = TextEditingController();
-  final _categoryController = TextEditingController();
+  int? _selectedCategoryId;
   String? _imageUrl;
+  File? _imageFile;
+  bool _isUploading = false;
+  List<PlaceCategory> _categories = [];
+  bool _isLoadingCategories = false;
 
   @override
   void initState() {
@@ -40,8 +52,45 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
       _addressController.text = widget.place!.address ?? '';
       _phoneController.text = widget.place!.phone ?? '';
       _workingHoursController.text = widget.place!.workingHours ?? '';
-      _categoryController.text = widget.place!.category ?? '';
+      _selectedCategoryId = widget.place!.categoryId;
       _imageUrl = widget.place!.imageUrl;
+    }
+    _fetchCategories();
+  }
+
+  Future<void> _fetchCategories() async {
+    setState(() => _isLoadingCategories = true);
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final categoryService = PlaceCategoryService(authProvider);
+      final categories = await categoryService.getAllCategories();
+
+      setState(() {
+        _categories = categories
+            .where((c) => c.id != 0)
+            .toList(); // Исключаем категорию "Все"
+        _isLoadingCategories = false;
+      });
+    } catch (e) {
+      print('Ошибка при загрузке категорий: $e');
+      setState(() => _isLoadingCategories = false);
+
+      // Устанавливаем базовые категории в случае ошибки
+      _categories = [
+        PlaceCategory(id: 1, name: 'Кафе', iconUrl: null, isActive: true),
+        PlaceCategory(id: 2, name: 'Рестораны', iconUrl: null, isActive: true),
+        PlaceCategory(id: 3, name: 'Парки', iconUrl: null, isActive: true),
+        PlaceCategory(id: 4, name: 'Музеи', iconUrl: null, isActive: true),
+        PlaceCategory(id: 5, name: 'Кинотеатры', iconUrl: null, isActive: true),
+        PlaceCategory(id: 6, name: 'Спорт', iconUrl: null, isActive: true),
+        PlaceCategory(id: 7, name: 'Магазины', iconUrl: null, isActive: true),
+        PlaceCategory(id: 8, name: 'Отели', iconUrl: null, isActive: true),
+        PlaceCategory(
+            id: 9, name: 'Образование', iconUrl: null, isActive: true),
+      ];
+
+      CustomNotification.show(context, 'Ошибка при загрузке категорий');
     }
   }
 
@@ -54,12 +103,58 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
     _addressController.dispose();
     _phoneController.dispose();
     _workingHoursController.dispose();
-    _categoryController.dispose();
     super.dispose();
   }
 
-  void _submitForm() {
+  Future<void> _pickImage() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+
+      if (image != null) {
+        setState(() {
+          _imageFile = File(image.path);
+        });
+      }
+    } catch (e) {
+      CustomNotification.show(context, 'Ошибка при выборе изображения: $e');
+    }
+  }
+
+  Future<void> _uploadImage() async {
+    if (_imageFile == null || widget.place == null) return;
+
+    setState(() {
+      _isUploading = true;
+    });
+
+    try {
+      final updatedPlace = await widget.adminService.updatePlaceImage(
+        widget.place!.placeId,
+        _imageFile!,
+      );
+
+      setState(() {
+        _imageUrl = updatedPlace.imageUrl;
+        _imageFile = null;
+        _isUploading = false;
+      });
+
+      CustomNotification.show(context, 'Изображение успешно загружено');
+    } catch (e) {
+      setState(() {
+        _isUploading = false;
+      });
+      CustomNotification.show(context, 'Ошибка при загрузке изображения: $e');
+    }
+  }
+
+  Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isUploading = true;
+      });
+
       try {
         // Нормализуем значения широты и долготы, заменяя запятые на точки
         String normalizedLatitude =
@@ -75,18 +170,71 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
           'address': _addressController.text,
           'phone': _phoneController.text,
           'workingHours': _workingHoursController.text,
-          'category': _categoryController.text,
+          'categoryId': _selectedCategoryId,
         };
 
         if (_imageUrl != null && _imageUrl!.isNotEmpty) {
           placeData['imageUrl'] = _imageUrl!;
         }
 
-        widget.onSave(placeData);
-        Navigator.of(context).pop();
-        CustomNotification.show(context, 'Данные сохранены');
+        // Если это создание нового места и есть выбранное изображение
+        if (widget.place == null && _imageFile != null) {
+          // Сначала создаем место
+          final createdPlace = await widget.adminService.createPlace(placeData);
+
+          // Затем загружаем изображение для созданного места
+          final updatedPlace = await widget.adminService.updatePlaceImage(
+            createdPlace.placeId,
+            _imageFile!,
+          );
+
+          // Вызываем колбэк с обновленными данными
+          widget.onSave({
+            ...placeData,
+            'placeId': updatedPlace.placeId,
+            'imageUrl': updatedPlace.imageUrl,
+          });
+
+          Navigator.of(context).pop();
+          CustomNotification.show(context, 'Место создано с изображением');
+        }
+        // Если это редактирование и есть новое изображение
+        else if (widget.place != null && _imageFile != null) {
+          // Сначала обновляем данные места
+          await widget.adminService
+              .updatePlace(widget.place!.placeId, placeData);
+
+          // Затем загружаем новое изображение
+          final updatedPlace = await widget.adminService.updatePlaceImage(
+            widget.place!.placeId,
+            _imageFile!,
+          );
+
+          // Вызываем колбэк с обновленными данными
+          widget.onSave({
+            ...placeData,
+            'placeId': widget.place!.placeId,
+            'imageUrl': updatedPlace.imageUrl,
+          });
+
+          Navigator.of(context).pop();
+          CustomNotification.show(
+              context, 'Место обновлено с новым изображением');
+        }
+        // Если нет нового изображения, просто сохраняем данные
+        else {
+          widget.onSave(placeData);
+          Navigator.of(context).pop();
+          CustomNotification.show(context, 'Данные сохранены');
+        }
       } catch (e) {
         CustomNotification.show(context, 'Ошибка при сохранении: $e');
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isUploading = false;
+          });
+        }
       }
     }
   }
@@ -293,14 +441,38 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _categoryController,
-                          decoration: const InputDecoration(
-                            labelText: 'Категория',
-                            hintText: 'Например: Ресторан, Кафе, Парк',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
+                        _isLoadingCategories
+                            ? const Center(child: CircularProgressIndicator())
+                            : DropdownButtonFormField<int>(
+                                value: _selectedCategoryId,
+                                decoration: const InputDecoration(
+                                  labelText: 'Выберите категорию *',
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: _categories.map((category) {
+                                  return DropdownMenuItem<int>(
+                                    value: category.id,
+                                    child: Row(
+                                      children: [
+                                        Icon(category.icon, size: 20),
+                                        const SizedBox(width: 8),
+                                        Text(category.name),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedCategoryId = value;
+                                  });
+                                },
+                                validator: (value) {
+                                  if (value == null) {
+                                    return 'Пожалуйста, выберите категорию';
+                                  }
+                                  return null;
+                                },
+                              ),
                       ],
                     ),
                   ),
@@ -321,7 +493,63 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        if (_imageUrl != null)
+                        if (_isUploading)
+                          const Center(
+                            child: Column(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 8),
+                                Text('Загрузка изображения...'),
+                              ],
+                            ),
+                          )
+                        else if (_imageFile != null)
+                          Column(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.file(
+                                  _imageFile!,
+                                  height: 200,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // Показываем кнопку загрузки только при редактировании существующего места
+                                  if (widget.place != null)
+                                    ElevatedButton.icon(
+                                      icon: const Icon(Icons.upload),
+                                      label: const Text('Загрузить'),
+                                      onPressed: _uploadImage,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppTheme.accentColor,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                    ),
+                                  if (widget.place != null)
+                                    const SizedBox(width: 16),
+                                  ElevatedButton.icon(
+                                    icon: const Icon(Icons.delete),
+                                    label: const Text('Удалить'),
+                                    onPressed: () {
+                                      setState(() {
+                                        _imageFile = null;
+                                      });
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          )
+                        else if (_imageUrl != null)
                           Column(
                             children: [
                               ClipRRect(
@@ -361,81 +589,14 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
                         else
                           Center(
                             child: ElevatedButton.icon(
-                              icon: const Icon(Icons.image),
-                              label: const Text('Добавить URL изображения'),
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) {
-                                    final controller =
-                                        TextEditingController(text: _imageUrl);
-                                    return Dialog(
-                                      child: Container(
-                                        padding: const EdgeInsets.all(16.0),
-                                        width: 300,
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              'URL изображения',
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 16),
-                                            TextField(
-                                              controller: controller,
-                                              decoration: const InputDecoration(
-                                                hintText:
-                                                    'Введите URL изображения',
-                                                border: OutlineInputBorder(),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 16),
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.end,
-                                              children: [
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.of(context)
-                                                          .pop(),
-                                                  child: const Text('Отмена'),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                ElevatedButton(
-                                                  onPressed: () {
-                                                    setState(() {
-                                                      _imageUrl = controller
-                                                              .text.isNotEmpty
-                                                          ? controller.text
-                                                          : null;
-                                                    });
-                                                    Navigator.of(context).pop();
-                                                  },
-                                                  style:
-                                                      ElevatedButton.styleFrom(
-                                                    backgroundColor:
-                                                        AppTheme.accentColor,
-                                                  ),
-                                                  child:
-                                                      const Text('Сохранить'),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                );
-                              },
+                              icon: const Icon(Icons.photo_camera),
+                              label: const Text('Выбрать из галереи'),
+                              onPressed: _pickImage,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppTheme.accentColor,
                                 foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 24, vertical: 12),
                               ),
                             ),
                           ),
@@ -448,9 +609,19 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.save),
-                      label: const Text('Сохранить'),
-                      onPressed: _submitForm,
+                      icon: _isUploading
+                          ? Container(
+                              width: 24,
+                              height: 24,
+                              padding: const EdgeInsets.all(2.0),
+                              child: const CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 3,
+                              ),
+                            )
+                          : const Icon(Icons.save),
+                      label: Text(_isUploading ? 'Сохранение...' : 'Сохранить'),
+                      onPressed: _isUploading ? null : _submitForm,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.accentColor,
                         foregroundColor: Colors.white,
@@ -463,7 +634,9 @@ class _PlaceFormPageState extends State<PlaceFormPage> {
                     OutlinedButton.icon(
                       icon: const Icon(Icons.cancel),
                       label: const Text('Отмена'),
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: _isUploading
+                          ? null
+                          : () => Navigator.of(context).pop(),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 32, vertical: 16),

@@ -173,7 +173,10 @@ class _PlaceContentState extends State<_PlaceContent>
     super.initState();
     _imageService = widget.imageService;
     _ratingStateService = RatingStateService();
-    _images = widget.initialImages ?? [];
+    // Фильтруем initialImages, оставляя только одобренные (isApproved == true)
+    _images = widget.initialImages != null
+        ? widget.initialImages!.where((image) => image.isApproved).toList()
+        : [];
     _initializeUserId();
     if (_images.isEmpty) {
       _loadImages();
@@ -278,7 +281,10 @@ class _PlaceContentState extends State<_PlaceContent>
   void didUpdateWidget(covariant _PlaceContent oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialImages != oldWidget.initialImages) {
-      _images = widget.initialImages ?? [];
+      // Фильтруем initialImages, оставляя только одобренные (isApproved == true)
+      _images = widget.initialImages != null
+          ? widget.initialImages!.where((image) => image.isApproved).toList()
+          : [];
       _initializeRatingStates();
     }
   }
@@ -297,7 +303,8 @@ class _PlaceContentState extends State<_PlaceContent>
       final images = await _imageService.getPlaceImages(widget.place.placeId);
       if (mounted) {
         setState(() {
-          _images = images;
+          // Фильтруем изображения, оставляя только одобренные (isApproved == true)
+          _images = images.where((image) => image.isApproved).toList();
           _isLoadingImages = false;
         });
         _initializeRatingStates();
@@ -329,23 +336,13 @@ class _PlaceContentState extends State<_PlaceContent>
 
       if (mounted) {
         setState(() {
-          _images.add(PlaceImage(
-            placeId: widget.place.placeId,
-            imageId: response.imageId,
-            imageUrl: response.imageUrl,
-            uploadedById: response.uploadedById,
-            uploaderUsername: response.uploaderUsername,
-            uploadedAt: response.uploadedAt,
-            likes: 0,
-            dislikes: 0,
-            isApproved: false,
-          ));
+          // Не добавляем изображение в список для отображения, так как оно должно пройти модерацию
           _isLoadingImages = false;
         });
 
         CustomNotification.show(
           context,
-          'Изображение успешно загружено',
+          'Изображение успешно загружено и отправлено на модерацию',
         );
       }
     } catch (e) {

@@ -10,6 +10,8 @@ import '../nav_service/navigation_provider.dart';
 import '../pages/Example.dart';
 import '../api_services/place_serice/place.dart';
 import '../api_services/map_service/location.dart';
+import '../pages/create_meetup_page.dart';
+import '../api_services/meetup_service/meetup_service.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -486,39 +488,60 @@ class _ChatPageState extends State<ChatPage>
                     ),
                   ),
                 ),
-                // Добавляем кнопку с тремя точками только для активных встреч
+                // Добавляем кнопку с тремя точками только для активных встреч и только для организатора
                 if (!showActions && !isArchived)
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert),
-                    onSelected: (String value) {
-                      // Пока без функционала
-                      print(
-                          'Выбрано действие: $value для встречи ${chat.chatId}');
+                  FutureBuilder<int?>(
+                    future: Provider.of<AuthProvider>(context, listen: false)
+                        .getUserId(),
+                    builder: (context, snapshot) {
+                      // Проверяем, является ли текущий пользователь организатором встречи
+                      final isCreator =
+                          snapshot.hasData && snapshot.data == chat.createdById;
+
+                      // Показываем кнопку только если пользователь - организатор
+                      if (isCreator) {
+                        return PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert),
+                          onSelected: (String value) async {
+                            if (value == 'edit') {
+                              // Редактирование встречи
+                              _editMeetup(chat);
+                            } else if (value == 'delete') {
+                              // Удаление встречи
+                              _deleteMeetup(chat);
+                            }
+                          },
+                          itemBuilder: (BuildContext context) =>
+                              <PopupMenuEntry<String>>[
+                            const PopupMenuItem<String>(
+                              value: 'edit',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.edit, size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Редактировать'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem<String>(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete,
+                                      size: 20, color: Colors.red),
+                                  SizedBox(width: 8),
+                                  Text('Удалить',
+                                      style: TextStyle(color: Colors.red)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      } else {
+                        // Если пользователь не организатор, не показываем кнопку
+                        return const SizedBox.shrink();
+                      }
                     },
-                    itemBuilder: (BuildContext context) =>
-                        <PopupMenuEntry<String>>[
-                      const PopupMenuItem<String>(
-                        value: 'edit',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit, size: 20),
-                            SizedBox(width: 8),
-                            Text('Редактировать'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete, size: 20, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Удалить',
-                                style: TextStyle(color: Colors.red)),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
               ],
             ),
@@ -800,6 +823,132 @@ class _ChatPageState extends State<ChatPage>
         },
       );
     });
+  }
+
+  Future<void> _editMeetup(Chat chat) async {
+    try {
+      setState(() => _isLoading = true);
+
+      // Получаем данные встречи
+      final meetupId = chat.meetupId;
+      if (meetupId == null) {
+        throw Exception('ID встречи не найден');
+      }
+
+      // Создаем объект с данными для редактирования
+      final meetupToEdit = {
+        'meetupId': meetupId,
+        'name': chat.name,
+        'description': chat.description,
+        'scheduledTime': chat.scheduledTime?.toIso8601String(),
+        'participants': chat.participants
+            .map((p) => {
+                  'userId': p.userId,
+                  'username': p.name,
+                  'avatarUrl': p.avatarUrl,
+                  'status': p.role,
+                })
+            .toList(),
+        'place': {
+          'name': chat.placeName,
+          'address': chat.placeAddress,
+          'latitude': chat.latitude,
+          'longitude': chat.longitude,
+          'imageUrl': chat.placeImageUrl,
+        },
+      };
+
+      // Создаем объект с данными о месте
+      final selectedPlace = {
+        'id': chat.meetupId,
+        'name': chat.placeName ?? 'Неизвестное место',
+        'address': chat.placeAddress,
+        'latitude': chat.latitude,
+        'longitude': chat.longitude,
+        'imageUrl': chat.placeImageUrl,
+      };
+
+      setState(() => _isLoading = false);
+
+      // Переходим на страницу редактирования встречи
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CreateMeetupPage(
+            selectedPlace: selectedPlace,
+            meetupToEdit: meetupToEdit,
+            isEditing: true,
+          ),
+        ),
+      );
+
+      // Обновляем данные после возвращения
+      if (result != null) {
+        _loadData();
+      }
+    } catch (e) {
+      print('Ошибка при редактировании встречи: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        CustomNotification.show(
+            context, 'Ошибка при редактировании встречи: $e');
+      }
+    }
+  }
+
+  Future<void> _deleteMeetup(Chat chat) async {
+    try {
+      // Показываем диалог подтверждения
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Удаление встречи'),
+          content: const Text('Вы уверены, что хотите удалить эту встречу?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      setState(() => _isLoading = true);
+
+      final meetupId = chat.meetupId;
+      if (meetupId == null) {
+        throw Exception('ID встречи не найден');
+      }
+
+      // Получаем сервис для работы с встречами
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final meetupService = MeetupService(authProvider);
+
+      // Отменяем встречу
+      await meetupService.cancelMeetup(meetupId);
+
+      if (mounted) {
+        CustomNotification.show(context, 'Встреча успешно удалена');
+        // Обновляем список встреч
+        _loadData();
+      }
+    } catch (e) {
+      print('Ошибка при удалении встречи: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        CustomNotification.show(context, 'Ошибка при удалении встречи: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   void _navigateToMap(Chat chat) async {

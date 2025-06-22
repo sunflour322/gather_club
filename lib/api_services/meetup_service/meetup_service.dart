@@ -129,4 +129,105 @@ class MeetupService {
       'Authorization': 'Bearer $token',
     };
   }
+
+  Future<Map<String, dynamic>> updateMeetup(
+      int meetupId, int userId, Map<String, dynamic> meetupRequest) async {
+    try {
+      final token = await _authProvider.getToken();
+      if (token == null) {
+        throw Exception('Не удалось получить токен авторизации');
+      }
+
+      developer.log('Updating meetup with token: $token');
+      developer.log('Request URL: $_baseUrl/$meetupId');
+      developer.log('Request body: ${jsonEncode(meetupRequest)}');
+
+      final response = await http.put(
+        Uri.parse('$_baseUrl/$meetupId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(meetupRequest),
+      );
+
+      developer.log('Received response with status: ${response.statusCode}');
+      developer.log('Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          developer.log('Empty response body, returning success status');
+          return {'status': 'success'};
+        }
+
+        try {
+          final responseData = jsonDecode(response.body);
+          developer.log('Parsed response data: $responseData');
+          return responseData;
+        } catch (e) {
+          developer.log('Error parsing response JSON: $e');
+          return {'status': 'success', 'error': 'Could not parse response'};
+        }
+      }
+
+      throw Exception(
+          'Ошибка при обновлении встречи: ${response.statusCode} - ${response.body}');
+    } catch (e, stackTrace) {
+      developer.log(
+        'Error in updateMeetup',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> cancelMeetup(int meetupId) async {
+    try {
+      final token = await _authProvider.getToken();
+      if (token == null) {
+        throw Exception('Не удалось получить токен авторизации');
+      }
+
+      developer.log('Cancelling meetup with token: $token');
+      developer.log('Request URL: $_baseUrl/$meetupId/cancel');
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/$meetupId/cancel'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      developer.log('Received response with status: ${response.statusCode}');
+      developer.log('Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          developer.log('Empty response body, returning success status');
+          return {'status': 'success'};
+        }
+
+        try {
+          final responseData = jsonDecode(response.body);
+          developer.log('Parsed response data: $responseData');
+          return responseData;
+        } catch (e) {
+          developer.log('Error parsing response JSON: $e');
+          return {'status': 'success', 'error': 'Could not parse response'};
+        }
+      }
+
+      throw Exception(
+          'Ошибка при отмене встречи: ${response.statusCode} - ${response.body}');
+    } catch (e, stackTrace) {
+      developer.log(
+        'Error in cancelMeetup',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
+  }
 }

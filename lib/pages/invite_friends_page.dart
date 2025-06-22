@@ -8,7 +8,10 @@ import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 
 class InviteFriendsPage extends StatefulWidget {
-  const InviteFriendsPage({Key? key}) : super(key: key);
+  final List<Friend>? initialSelectedFriends;
+
+  const InviteFriendsPage({Key? key, this.initialSelectedFriends})
+      : super(key: key);
 
   @override
   State<InviteFriendsPage> createState() => _InviteFriendsPageState();
@@ -26,6 +29,14 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
   void initState() {
     super.initState();
     _friendService = FriendService(http.Client());
+
+    // Инициализируем выбранных друзей, если они предоставлены
+    if (widget.initialSelectedFriends != null &&
+        widget.initialSelectedFriends!.isNotEmpty) {
+      _selectedFriendIds =
+          widget.initialSelectedFriends!.map((friend) => friend.userId).toSet();
+    }
+
     _loadFriends();
   }
 
@@ -84,8 +95,44 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
     }).toList();
   }
 
+  // Получаем статус друга из списка initialSelectedFriends
+  String? _getFriendStatus(int userId) {
+    if (widget.initialSelectedFriends == null) return null;
+
+    final friend = widget.initialSelectedFriends!.firstWhere(
+      (f) => f.userId == userId,
+      orElse: () => Friend(
+          userId: -1, username: '', status: 'unknown', isOutgoing: false),
+    );
+
+    return friend.userId != -1 ? friend.status : null;
+  }
+
   Widget _buildFriendItem(Friend friend) {
     final isSelected = _selectedFriendIds.contains(friend.userId);
+    final status = _getFriendStatus(friend.userId);
+
+    // Определяем цвет и текст статуса
+    Color statusColor = AppTheme.accentColor;
+    String? statusText;
+
+    if (status != null) {
+      switch (status.toUpperCase()) {
+        case 'accepted':
+          statusColor = Colors.green;
+          statusText = 'Принято';
+          break;
+        case 'pending':
+          statusColor = Colors.orange;
+          statusText = 'Ожидает';
+          break;
+        case 'declined':
+          statusColor = Colors.red;
+          statusText = 'Отклонено';
+          break;
+      }
+    }
+
     return GestureDetector(
       onTap: () => _toggleFriendSelection(friend.userId),
       child: Column(
@@ -98,8 +145,11 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color:
-                        isSelected ? AppTheme.accentColor : Colors.grey[300]!,
+                    color: status != null
+                        ? statusColor
+                        : (isSelected
+                            ? AppTheme.accentColor
+                            : Colors.grey[300]!),
                     width: 2,
                   ),
                 ),
@@ -138,9 +188,26 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
                     ),
                   ),
                 ),
+              if (status != null)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: statusColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 12,
+                    ),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             friend.username,
             style: const TextStyle(fontSize: 14),
@@ -148,6 +215,18 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
           ),
+          if (statusText != null)
+            Text(
+              statusText,
+              style: TextStyle(
+                fontSize: 12,
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
         ],
       ),
     );

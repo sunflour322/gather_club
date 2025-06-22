@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'package:gather_club/api_services/place_serice/place.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 class AdminService {
   final AuthProvider _authProvider;
@@ -110,6 +112,46 @@ class AdminService {
       }
     } catch (e) {
       print('Error updating place: $e');
+      rethrow;
+    }
+  }
+
+  // Загрузка изображения для места
+  Future<Place> updatePlaceImage(int placeId, File imageFile) async {
+    try {
+      final token = await _authProvider.getToken();
+      if (token == null) throw Exception('Не авторизован');
+
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_placesBaseUrl/$placeId/image'),
+      );
+
+      request.headers.addAll({
+        'Authorization': 'Bearer $token',
+        'Accept': '*/*',
+      });
+
+      final mimeType = imageFile.path.split('.').last.toLowerCase();
+      final contentType = MediaType('image', mimeType);
+
+      request.files.add(await http.MultipartFile.fromPath(
+        'image',
+        imageFile.path,
+        contentType: contentType,
+      ));
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        return Place.fromJson(json.decode(response.body));
+      } else {
+        print('Response body: ${response.body}');
+        throw Exception('Ошибка загрузки изображения: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error uploading image: $e');
       rethrow;
     }
   }

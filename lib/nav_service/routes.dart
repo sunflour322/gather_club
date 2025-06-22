@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gather_club/pages/Example.dart';
+import 'package:gather_club/api_services/admin_service.dart';
 import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'package:gather_club/nav_service/nav_page.dart';
 import 'package:gather_club/pages/admin/admin_page.dart';
@@ -47,16 +48,20 @@ final routes = {
   '/admin/place/edit': (context) {
     final args =
         ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final adminService = Provider.of<AdminService>(context, listen: false);
     return PlaceFormPage(
       place: args['place'],
       onSave: args['onSave'],
+      adminService: adminService,
     );
   },
   '/admin/place/create': (context) {
     final args =
         ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final adminService = Provider.of<AdminService>(context, listen: false);
     return PlaceFormPage(
       onSave: args['onSave'],
+      adminService: adminService,
     );
   },
 };

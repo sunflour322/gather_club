@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:gather_club/pages/Example.dart';
+import 'package:gather_club/api_services/admin_service.dart';
 import 'package:gather_club/api_services/auth_service/auth_provider.dart';
 import 'package:gather_club/nav_service/nav_page.dart';
 import 'package:gather_club/nav_service/routes.dart';
@@ -68,11 +70,26 @@ class MyApp extends StatelessWidget {
             Provider.of<AuthProvider>(context, listen: false),
           ),
         ),
+        Provider<AdminService>(
+          create: (context) => AdminService(
+            Provider.of<AuthProvider>(context, listen: false),
+          ),
+        ),
       ],
       child: MaterialApp(
         title: 'Gather Club',
         theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('ru', 'RU'),
+          Locale('en', 'US'),
+        ],
+        locale: const Locale('ru', 'RU'),
         initialRoute: '/',
         routes: {
           '/': (context) {
@@ -129,16 +146,22 @@ class MyApp extends StatelessWidget {
           '/admin/place/edit': (context) {
             final args = ModalRoute.of(context)!.settings.arguments
                 as Map<String, dynamic>;
+            final adminService =
+                Provider.of<AdminService>(context, listen: false);
             return PlaceFormPage(
               place: args['place'],
               onSave: args['onSave'],
+              adminService: adminService,
             );
           },
           '/admin/place/create': (context) {
             final args = ModalRoute.of(context)!.settings.arguments
                 as Map<String, dynamic>;
+            final adminService =
+                Provider.of<AdminService>(context, listen: false);
             return PlaceFormPage(
               onSave: args['onSave'],
+              adminService: adminService,
             );
           },
         },

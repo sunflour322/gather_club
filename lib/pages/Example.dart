@@ -332,6 +332,14 @@ class _ExamplePageState extends State<ExamplePage>
   bool _isLoading = true;
   bool _hasLocationPermission = false;
   AuthService _authService = AuthService();
+  String _username = '';
+  String? _userAvatarUrl;
+  double _loadingProgress = 0.0;
+  Timer? _progressTimer;
+  bool _userDataLoaded = false;
+  String _visibleText = '';
+  int _currentCharIndex = 0;
+  Timer? _textAnimationTimer;
   PolylineMapObject? _routePolyline;
   String? _routeDuration;
   String? _routeDistance;
@@ -378,22 +386,155 @@ class _ExamplePageState extends State<ExamplePage>
   @override
   void initState() {
     super.initState();
+    // Устанавливаем значения по умолчанию сразу
+    _username = 'Пользователь';
+
+    // Запускаем анимацию загрузки
+    _startLoadingAnimation();
+
+    // Инициализируем сервисы
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _userPlaceService = UserCustomPlaceService(authProvider);
     _userLocationService = UserLocationService(authProvider);
     _categoryService = PlaceCategoryService(authProvider);
+
+    // Загружаем информацию о пользователе немедленно
+    _loadUserData(authProvider);
+
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  // Загрузка данных пользователя и последующая загрузка остальных данных
+  void _loadUserData(AuthProvider authProvider) {
+    // Немедленно начинаем загрузку данных пользователя
+    _getUserInfo(authProvider).then((_) {
+      // После загрузки данных пользователя начинаем загрузку остальных данных
+      _loadOtherData(authProvider);
+    });
+  }
+
+  // Загрузка остальных данных после получения информации о пользователе
+  void _loadOtherData(AuthProvider authProvider) {
+    // Инициализируем местоположение
     _initLocation();
-    _fetchCategories();
-    _fetchAllPlaces(); // Загружаем все места один раз
-    _fetchUserPlaces();
+
+    // Запускаем обновление местоположения
     _startLocationUpdates();
+
+    // Запускаем таймер обновления местоположения друзей
     _friendsLocationUpdateTimer =
         Timer.periodic(const Duration(seconds: 30), (timer) {
       if (!_disposed) {
         _updateFriendsLocations();
       }
     });
-    _searchController.addListener(_onSearchChanged);
+
+    // Используем Future.delayed для более плавной загрузки
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _fetchCategories();
+    });
+    Future.delayed(const Duration(seconds: 1), () {
+      _fetchAllPlaces(); // Загружаем все места один раз
+    });
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      _fetchUserPlaces();
+    });
+  }
+
+  // Получение информации о пользователе - оптимизированная версия
+  Future<void> _getUserInfo(AuthProvider authProvider) async {
+    try {
+      // Получаем ID пользователя и токен как можно быстрее
+      final userId = await authProvider.getUserId();
+      final token = await authProvider.getToken();
+
+      if (token == null) {
+        print('Токен не найден, используем имя по умолчанию');
+        setState(() {
+          _userDataLoaded = true;
+          _startGreetingAnimation();
+        });
+        return;
+      }
+
+      // Создаем запрос к API для получения данных пользователя
+      final response = await http.get(
+        Uri.parse('http://212.67.8.92:8080/users/$userId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      // Обрабатываем ответ
+      if (response.statusCode == 200 && !_disposed) {
+        final userData = json.decode(response.body);
+        setState(() {
+          _username = userData['username'] ?? 'Пользователь';
+          _userAvatarUrl = userData['avatarUrl'];
+          _userDataLoaded = true;
+          _startGreetingAnimation();
+        });
+        print(
+            'Информация о пользователе загружена: $_username, аватар: ${_userAvatarUrl != null ? "загружен" : "отсутствует"}');
+      } else {
+        print(
+            'Ошибка при получении данных пользователя: ${response.statusCode}');
+        setState(() {
+          _userDataLoaded = true;
+          _startGreetingAnimation();
+        });
+      }
+    } catch (e) {
+      print('Ошибка при получении информации о пользователе: $e');
+      setState(() {
+        _userDataLoaded = true;
+        _startGreetingAnimation();
+      });
+    }
+  }
+
+  // Анимация появления текста по букве слева направо
+  void _startGreetingAnimation() {
+    final fullText = 'Привет, $_username';
+    _visibleText = '';
+    _currentCharIndex = 0;
+
+    // Отменяем предыдущий таймер, если он существует
+    _textAnimationTimer?.cancel();
+
+    // Запускаем новый таймер для анимации текста
+    _textAnimationTimer =
+        Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (_currentCharIndex < fullText.length) {
+        setState(() {
+          _visibleText = fullText.substring(0, _currentCharIndex + 1);
+          _currentCharIndex++;
+        });
+      } else {
+        timer.cancel();
+        _textAnimationTimer = null;
+      }
+    });
+  }
+
+  // Анимация прогресса загрузки
+  void _startLoadingAnimation() {
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (_loadingProgress < 0.95) {
+        setState(() {
+          // Нелинейное увеличение для имитации реальной загрузки
+          _loadingProgress += (1.0 - _loadingProgress) * 0.01;
+        });
+      } else if (!_isLoading && !_isRouteCalculating) {
+        // Если загрузка завершена, доводим прогресс до 100%
+        setState(() {
+          _loadingProgress = 1.0;
+        });
+        timer.cancel();
+        _progressTimer = null;
+      }
+    });
   }
 
   @override
@@ -473,18 +614,41 @@ class _ExamplePageState extends State<ExamplePage>
             // Применяем текущий фильтр категорий
             _filterPlacesByCategories();
           });
+
+          // Даем небольшую задержку, чтобы места успели отобразиться на карте
+          await Future.delayed(const Duration(milliseconds: 500));
+
+          // Скрываем экран загрузки только после загрузки и отображения всех мест
+          if (!_disposed) {
+            _safeSetState(() => _isLoading = false);
+          }
         } catch (parseError) {
           print('Error parsing places response: $parseError');
           print(
               'Response body: ${response.body.substring(0, min(200, response.body.length))}...');
+
+          // В случае ошибки тоже скрываем экран загрузки
+          if (!_disposed) {
+            _safeSetState(() => _isLoading = false);
+          }
         }
       } else {
         print('Failed to load places: ${response.statusCode}');
         print(
             'Response body: ${response.body.substring(0, min(200, response.body.length))}...');
+
+        // В случае ошибки тоже скрываем экран загрузки
+        if (!_disposed) {
+          _safeSetState(() => _isLoading = false);
+        }
       }
     } catch (e) {
       print('Error fetching places: $e');
+
+      // В случае ошибки тоже скрываем экран загрузки
+      if (!_disposed) {
+        _safeSetState(() => _isLoading = false);
+      }
     } finally {
       _safeSetState(() => _isLoadingPlaces = false);
     }
@@ -607,60 +771,82 @@ class _ExamplePageState extends State<ExamplePage>
         }
       }
 
-      for (final place in _places) {
+      // Ограничиваем количество одновременных запросов для избежания перегрузки
+      final int batchSize = 5;
+      for (int i = 0; i < _places.length; i += batchSize) {
         if (_disposed) return;
 
-        const thumbnailSize = 300;
-        PlaceRepository placeRepository = PlaceRepository(_authProvider);
-        List<PlaceImage> placeImages = [];
+        final batch = _places.skip(i).take(batchSize);
+        final batchFutures = <Future>[];
 
-        try {
-          placeImages = await placeRepository.fetchPlaceImages(place.placeId);
-          print(
-              'Fetched ${placeImages.length} images for place ${place.placeId} (${place.name})');
-        } catch (e) {
-          print('Error fetching images for place ${place.placeId}: $e');
-          continue;
+        for (final place in batch) {
+          batchFutures.add(_processPlace(place, placemarks, _authProvider));
         }
 
-        if (_disposed) return;
+        // Ждем завершения обработки текущей партии мест
+        await Future.wait(batchFutures);
 
-        final Uint8List? thumbnailBytes = place.imageUrl != null
-            ? await _createSquareThumbnail(place.imageUrl!, thumbnailSize)
-            : null;
+        // Добавляем метки на карту после обработки каждой партии
+        if (!_disposed && placemarks.isNotEmpty) {
+          _safeSetState(() {
+            print('Adding ${placemarks.length} place markers to map');
+            _mapObjects.addAll(placemarks.toList());
+            placemarks.clear();
+          });
 
-        if (_disposed) return;
-
-        placemarks.add(PlacemarkMapObject(
-          mapId: MapObjectId('place_${place.placeId}'),
-          point: Point(latitude: place.latitude, longitude: place.longitude),
-          icon: PlacemarkIcon.single(
-            PlacemarkIconStyle(
-              image: thumbnailBytes != null
-                  ? BitmapDescriptor.fromBytes(thumbnailBytes)
-                  : BitmapDescriptor.fromAssetImage(
-                      'assets/default_avatar.png'),
-              scale: thumbnailBytes != null ? 0.3 : 0.2,
-            ),
-          ),
-          opacity: 1,
-          onTap: (mapObject, point) {
-            if (!_disposed) {
-              _showPlaceInfo(place, placeImages, location!);
-            }
-          },
-        ));
-      }
-
-      if (!_disposed) {
-        _safeSetState(() {
-          print('Adding ${placemarks.length} place markers to map');
-          _mapObjects.addAll(placemarks);
-        });
+          // Даем небольшую задержку для отрисовки
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
       }
     } catch (e) {
       print('Error in _addPlacesToMap: $e');
     }
+  }
+
+  // Вспомогательный метод для обработки одного места
+  Future<void> _processPlace(Place place, List<PlacemarkMapObject> placemarks,
+      AuthProvider authProvider) async {
+    if (_disposed) return;
+
+    const thumbnailSize = 300;
+    PlaceRepository placeRepository = PlaceRepository(authProvider);
+    List<PlaceImage> placeImages = [];
+
+    try {
+      placeImages = await placeRepository.fetchPlaceImages(place.placeId);
+      print(
+          'Fetched ${placeImages.length} images for place ${place.placeId} (${place.name})');
+    } catch (e) {
+      print('Error fetching images for place ${place.placeId}: $e');
+      return;
+    }
+
+    if (_disposed) return;
+
+    final Uint8List? thumbnailBytes = place.imageUrl != null
+        ? await _createSquareThumbnail(place.imageUrl!, thumbnailSize)
+        : null;
+
+    if (_disposed) return;
+
+    placemarks.add(PlacemarkMapObject(
+      mapId: MapObjectId('place_${place.placeId}'),
+      point: Point(latitude: place.latitude, longitude: place.longitude),
+      icon: PlacemarkIcon.single(
+        PlacemarkIconStyle(
+          image: thumbnailBytes != null
+              ? BitmapDescriptor.fromBytes(thumbnailBytes)
+              : BitmapDescriptor.fromAssetImage('assets/default_avatar.png'),
+          scale: thumbnailBytes != null ? 0.3 : 0.2,
+        ),
+      ),
+      opacity: 1,
+      onTap: (mapObject, point) {
+        if (!_disposed) {
+          _showPlaceInfo(place, placeImages, location!);
+        }
+      },
+    ));
   }
 
   void _addUserPlacesToMap() {
@@ -1179,9 +1365,7 @@ class _ExamplePageState extends State<ExamplePage>
       await _moveToDefaultLocation();
     }
 
-    if (!_disposed) {
-      _safeSetState(() => _isLoading = false);
-    }
+    // Не скрываем экран загрузки здесь, это будет сделано после загрузки всех мест
   }
 
   Future<void> _moveToCurrentLocation() async {
@@ -1195,6 +1379,11 @@ class _ExamplePageState extends State<ExamplePage>
     } catch (e) {
       print('Error moving to current location: $e');
       await _moveToDefaultLocation();
+
+      // Если не удалось получить местоположение, все равно скрываем экран загрузки
+      if (!_disposed) {
+        _safeSetState(() => _isLoading = false);
+      }
     }
   }
 
@@ -1736,6 +1925,8 @@ class _ExamplePageState extends State<ExamplePage>
     _disposed = true;
     _locationUpdateTimer?.cancel();
     _friendsLocationUpdateTimer?.cancel();
+    _progressTimer?.cancel();
+    _textAnimationTimer?.cancel();
     _placeNameController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -1763,8 +1954,6 @@ class _ExamplePageState extends State<ExamplePage>
             mapType: MapType.vector,
             poiLimit: 0,
           ),
-          if (_isLoading || _isRouteCalculating)
-            const Center(child: CircularProgressIndicator()),
           // Слайдер категорий в верхней части экрана
           Positioned(
             top: MediaQuery.of(context).padding.top,
@@ -2030,14 +2219,123 @@ class _ExamplePageState extends State<ExamplePage>
               },
               onClose: _hideFriendInfo,
             ),
+          // Экран загрузки поверх всех элементов
+          if (_isLoading || _isRouteCalculating)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                color: Colors.white,
+                width: double.infinity,
+                height: double.infinity,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Приветствие и анимация появляются только после загрузки данных о пользователе
+                      if (_userDataLoaded)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Анимированный текст приветствия
+                            Text(
+                              _visibleText,
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.accentColor,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            // Аватар пользователя справа от имени
+                            if (_userAvatarUrl != null)
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  image: DecorationImage(
+                                    image: NetworkImage(_userAvatarUrl!),
+                                    fit: BoxFit.cover,
+                                  ),
+                                  border: Border.all(
+                                    color: AppTheme.accentColor,
+                                    width: 2,
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.grey[200],
+                                  border: Border.all(
+                                    color: AppTheme.accentColor,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: const Icon(Icons.person,
+                                    color: Colors.grey),
+                              ),
+                          ],
+                        ),
+                      const SizedBox(height: 30),
+                      // Основное изображение всегда отображается
+                      Image.asset(
+                        'assets/earth-png.gif',
+                        width: 100,
+                        height: 100,
+                      ),
+                      const SizedBox(height: 20),
+                      // Горизонтальный индикатор загрузки
+                      SizedBox(
+                        width: 100, // Ширина равна ширине картинки
+                        child: LinearProgressIndicator(
+                          value: _loadingProgress,
+                          backgroundColor: Colors.grey[300],
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                              AppTheme.accentColor),
+                          minHeight: 6,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'location',
-        onPressed: _hasLocationPermission ? _moveToCurrentLocation : null,
-        backgroundColor: AppTheme.accentColor,
-        child: const Icon(Icons.my_location),
-      ),
+      floatingActionButton: (_isLoading || _isRouteCalculating)
+          ? null
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Кнопка обновления данных о местах и фотографиях
+                Padding(
+                  padding: const EdgeInsets.only(left: 30.0),
+                  child: FloatingActionButton(
+                    heroTag: 'refresh',
+                    onPressed: _refreshPlacesAndImages,
+                    backgroundColor: AppTheme.accentColor,
+                    child: const Icon(Icons.refresh),
+                  ),
+                ),
+                const Spacer(),
+                // Кнопка проверки местоположения
+                FloatingActionButton(
+                  heroTag: 'location',
+                  onPressed:
+                      _hasLocationPermission ? _moveToCurrentLocation : null,
+                  backgroundColor: AppTheme.accentColor,
+                  child: const Icon(Icons.my_location),
+                ),
+              ],
+            ),
     );
   }
 
@@ -2272,6 +2570,40 @@ class _ExamplePageState extends State<ExamplePage>
   Future<void> _refreshPlaces() async {
     if (_disposed) return;
     await _fetchAllPlaces();
+  }
+
+  // Метод для обновления данных о местах и фотографиях
+  Future<void> _refreshPlacesAndImages() async {
+    if (_disposed) return;
+
+    // Показываем индикатор загрузки в виде уведомления
+    if (!_disposed && mounted) {
+      CustomNotification.show(context, 'Обновление данных...');
+    }
+
+    try {
+      // Обновляем категории
+      await _fetchCategories();
+
+      // Обновляем все места
+      await _fetchAllPlaces();
+
+      // Обновляем пользовательские места
+      await _fetchUserPlaces();
+
+      // Обновляем местоположения друзей
+      await _updateFriendsLocations();
+
+      // Показываем уведомление об успешном обновлении
+      if (!_disposed && mounted) {
+        CustomNotification.show(context, 'Данные успешно обновлены');
+      }
+    } catch (e) {
+      print('Ошибка при обновлении данных: $e');
+      if (!_disposed && mounted) {
+        CustomNotification.show(context, 'Ошибка при обновлении данных');
+      }
+    }
   }
 
   void _onSearchChanged() {
