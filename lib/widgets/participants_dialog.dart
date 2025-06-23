@@ -136,10 +136,12 @@ class ParticipantsDialog extends StatelessWidget {
     switch (role.toLowerCase()) {
       case 'admin':
         return 'Организатор';
-      case 'participant':
+      case 'member':
         return 'Участник';
       case 'moderator':
         return 'Модератор';
+      case 'guest':
+        return 'Гость';
       default:
         return role;
     }

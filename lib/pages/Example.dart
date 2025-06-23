@@ -618,37 +618,28 @@ class _ExamplePageState extends State<ExamplePage>
           // Даем небольшую задержку, чтобы места успели отобразиться на карте
           await Future.delayed(const Duration(milliseconds: 500));
 
-          // Скрываем экран загрузки только после загрузки и отображения всех мест
-          if (!_disposed) {
-            _safeSetState(() => _isLoading = false);
-          }
+          // Не скрываем экран загрузки здесь, это будет сделано после полной загрузки изображений
         } catch (parseError) {
           print('Error parsing places response: $parseError');
           print(
               'Response body: ${response.body.substring(0, min(200, response.body.length))}...');
 
-          // В случае ошибки тоже скрываем экран загрузки
-          if (!_disposed) {
-            _safeSetState(() => _isLoading = false);
-          }
+          // В случае ошибки НЕ скрываем экран загрузки, чтобы избежать мигания
+          // Вместо этого продолжаем показывать экран загрузки до завершения всех операций
         }
       } else {
         print('Failed to load places: ${response.statusCode}');
         print(
             'Response body: ${response.body.substring(0, min(200, response.body.length))}...');
 
-        // В случае ошибки тоже скрываем экран загрузки
-        if (!_disposed) {
-          _safeSetState(() => _isLoading = false);
-        }
+        // В случае ошибки НЕ скрываем экран загрузки, чтобы избежать мигания
+        // Вместо этого продолжаем показывать экран загрузки до завершения всех операций
       }
     } catch (e) {
       print('Error fetching places: $e');
 
-      // В случае ошибки тоже скрываем экран загрузки
-      if (!_disposed) {
-        _safeSetState(() => _isLoading = false);
-      }
+      // В случае ошибки НЕ скрываем экран загрузки, чтобы избежать мигания
+      // Вместо этого продолжаем показывать экран загрузки до завершения всех операций
     } finally {
       _safeSetState(() => _isLoadingPlaces = false);
     }
@@ -798,8 +789,31 @@ class _ExamplePageState extends State<ExamplePage>
           await Future.delayed(const Duration(milliseconds: 100));
         }
       }
+
+      // Добавляем задержку в 5 секунд перед скрытием экрана загрузки
+      // Это позволит всем объектам полностью отрисоваться на карте
+      if (!_disposed) {
+        print(
+            'All places loaded, waiting 5 seconds before hiding loading screen');
+
+        // Сначала ждем, чтобы дать время для отрисовки всех объектов
+        await Future.delayed(const Duration(seconds: 5));
+
+        // Затем скрываем экран загрузки, но только если виджет все еще активен
+        if (!_disposed) {
+          _safeSetState(() => _isLoading = false);
+          print('Loading screen hidden after delay');
+        }
+      }
     } catch (e) {
       print('Error in _addPlacesToMap: $e');
+
+      // Даже в случае ошибки ждем 5 секунд перед скрытием экрана загрузки
+      if (!_disposed) {
+        print('Error occurred, waiting 5 seconds before hiding loading screen');
+        await Future.delayed(const Duration(seconds: 5));
+        _safeSetState(() => _isLoading = false);
+      }
     }
   }
 
@@ -1380,10 +1394,8 @@ class _ExamplePageState extends State<ExamplePage>
       print('Error moving to current location: $e');
       await _moveToDefaultLocation();
 
-      // Если не удалось получить местоположение, все равно скрываем экран загрузки
-      if (!_disposed) {
-        _safeSetState(() => _isLoading = false);
-      }
+      // Даже в случае ошибки НЕ скрываем экран загрузки здесь
+      // Это будет сделано в _addPlacesToMap после задержки
     }
   }
 
@@ -1651,11 +1663,13 @@ class _ExamplePageState extends State<ExamplePage>
     print('Map created');
     _mapController = controller;
 
-    if (_isLoading && _hasLocationPermission) {
+    // Всегда поддерживаем экран загрузки активным до полной инициализации
+    _safeSetState(() => _isLoading = true);
+
+    if (_hasLocationPermission) {
       await _moveToCurrentLocation();
-    } else if (!_isLoading && location == null) {
-      // Если карта уже загружена, но местоположение пользователя не определено,
-      // попробуем получить его
+    } else if (location == null) {
+      // Если местоположение пользователя не определено, попробуем получить его
       try {
         location = await _locationService.getCurrentLocation();
         _addUserPlacemark(location!.lat, location!.long);
@@ -2312,20 +2326,18 @@ class _ExamplePageState extends State<ExamplePage>
       ),
       floatingActionButton: (_isLoading || _isRouteCalculating)
           ? null
-          : Row(
+          : Column(
               mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 // Кнопка обновления данных о местах и фотографиях
-                Padding(
-                  padding: const EdgeInsets.only(left: 30.0),
-                  child: FloatingActionButton(
-                    heroTag: 'refresh',
-                    onPressed: _refreshPlacesAndImages,
-                    backgroundColor: AppTheme.accentColor,
-                    child: const Icon(Icons.refresh),
-                  ),
+                FloatingActionButton(
+                  heroTag: 'refresh',
+                  onPressed: _refreshPlacesAndImages,
+                  backgroundColor: AppTheme.accentColor,
+                  child: const Icon(Icons.refresh),
                 ),
-                const Spacer(),
+                const SizedBox(height: 16),
                 // Кнопка проверки местоположения
                 FloatingActionButton(
                   heroTag: 'location',

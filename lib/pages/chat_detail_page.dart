@@ -400,8 +400,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color: isCurrentUser
-              ? Colors.white.withOpacity(0.2)
-              : AppTheme.accentColor.withOpacity(0.1),
+              ? Colors.white.withOpacity(0.3)
+              : AppTheme.accentColor.withOpacity(0.2),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -482,15 +482,6 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                 Navigator.pop(context);
               },
             ),
-            if (message.senderId == _currentUserId)
-              ListTile(
-                leading: const Icon(Icons.delete),
-                title: const Text('Удалить'),
-                onTap: () {
-                  // TODO: Добавить функционал удаления
-                  Navigator.pop(context);
-                },
-              ),
             ListTile(
               leading: const Icon(Icons.copy),
               title: const Text('Копировать'),
@@ -1059,6 +1050,18 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                           ],
                         ),
                       ),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _replyTo = null;
+                          });
+                        },
+                        child: const Icon(
+                          Icons.close,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1135,16 +1138,27 @@ class _ChatDetailPageState extends State<ChatDetailPage>
   }
 
   String _formatTime(DateTime time) {
+    // Добавляем +3 часа к времени сообщения (корректировка часового пояса)
+    final adjustedTime = time.add(const Duration(hours: 3));
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(time.year, time.month, time.day);
+    final messageDate =
+        DateTime(adjustedTime.year, adjustedTime.month, adjustedTime.day);
+
+    // Форматируем время с учетом корректировки часового пояса
+    final timeStr =
+        '${adjustedTime.hour.toString().padLeft(2, '0')}:${adjustedTime.minute.toString().padLeft(2, '0')}';
 
     if (messageDate == today) {
-      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+      // Если сообщение отправлено сегодня, показываем только время
+      return timeStr;
     } else if (messageDate == today.subtract(const Duration(days: 1))) {
-      return 'вчера';
+      // Если сообщение отправлено вчера, показываем "вчера" и время
+      return 'вчера $timeStr';
     } else {
-      return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')}';
+      // Иначе показываем дату и время
+      return '${adjustedTime.day.toString().padLeft(2, '0')}.${adjustedTime.month.toString().padLeft(2, '0')} $timeStr';
     }
   }
 }

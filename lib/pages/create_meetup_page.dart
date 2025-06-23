@@ -7,6 +7,9 @@ import 'package:provider/provider.dart';
 import 'package:gather_club/pages/invite_friends_page.dart';
 import 'package:gather_club/api_services/meetup_service/meetup_service.dart';
 import 'package:gather_club/api_services/user_service/friend.dart';
+import 'package:gather_club/models/meetup_participant_response.dart';
+import 'package:gather_club/widgets/participants_dialog.dart';
+import 'package:gather_club/nav_service/navigation_provider.dart';
 import 'dart:developer' as developer;
 
 class CreateMeetupPage extends StatefulWidget {
@@ -31,6 +34,8 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
   bool _isLoading = false;
   List<Friend> _selectedFriends = [];
   late MeetupService _meetupService;
+  bool _isLoadingParticipants = false;
+  List<MeetupParticipantResponse>? _meetupParticipants;
 
   @override
   void initState() {
@@ -75,6 +80,11 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
           developer.log('Error parsing participants: $e');
         }
       }
+
+      // Загружаем актуальный список участников с сервера
+      if (widget.meetupToEdit!['meetupId'] != null) {
+        _loadMeetupParticipants(widget.meetupToEdit!['meetupId']);
+      }
     } else if (widget.selectedPlace != null) {
       _nameController.text = 'Встреча в ${widget.selectedPlace!['name']}';
     }
@@ -85,6 +95,96 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
     _nameController.dispose();
     _descriptionController.dispose();
     super.dispose();
+  }
+
+  // Загрузка актуального списка участников встречи
+  Future<void> _loadMeetupParticipants(int meetupId) async {
+    if (_isLoadingParticipants) return;
+
+    setState(() {
+      _isLoadingParticipants = true;
+    });
+
+    try {
+      final participants = await _meetupService.getMeetupParticipants(meetupId);
+
+      if (mounted) {
+        setState(() {
+          _meetupParticipants = participants;
+          _isLoadingParticipants = false;
+
+          // Обновляем список выбранных друзей на основе актуальных данных с сервера
+          _updateSelectedFriendsFromParticipants();
+        });
+      }
+    } catch (e, stackTrace) {
+      developer.log(
+        'Error loading meetup participants',
+        error: e,
+        stackTrace: stackTrace,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isLoadingParticipants = false;
+        });
+
+        CustomNotification.show(
+          context,
+          'Ошибка при загрузке участников: ${e.toString()}',
+        );
+      }
+    }
+  }
+
+  // Обновляем список выбранных друзей на основе данных с сервера
+  void _updateSelectedFriendsFromParticipants() {
+    if (_meetupParticipants == null || _meetupParticipants!.isEmpty) return;
+
+    // Создаем новый список друзей на основе данных о участниках
+    final updatedFriends = _meetupParticipants!.map((participant) {
+      return Friend(
+        userId: participant.user.userId,
+        username: participant.user.username,
+        avatarUrl: participant.user.avatarUrl,
+        status: participant.status,
+        isOutgoing: false,
+      );
+    }).toList();
+
+    setState(() {
+      _selectedFriends = updatedFriends;
+    });
+  }
+
+  // Удаление участника со встречи
+  Future<void> _removeParticipant(int userId) async {
+    try {
+      if (widget.meetupToEdit == null ||
+          widget.meetupToEdit!['meetupId'] == null) {
+        return;
+      }
+
+      final meetupId = widget.meetupToEdit!['meetupId'];
+
+      // Вызываем API для удаления участника
+      await _meetupService.removeParticipant(meetupId, userId);
+
+      // Обновляем список участников
+      setState(() {
+        _selectedFriends.removeWhere((friend) => friend.userId == userId);
+      });
+
+      CustomNotification.show(
+        context,
+        'Участник удален со встречи',
+      );
+    } catch (e) {
+      CustomNotification.show(
+        context,
+        'Ошибка при удалении участника: ${e.toString()}',
+      );
+    }
   }
 
   Future<void> _selectDate() async {
@@ -280,9 +380,7 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
           context,
           successMessage,
         );
-
-        // Обновляем список чатов
-        Navigator.pushNamed(context, '/chat');
+        // Просто возвращаемся назад, без дополнительной навигации
       }
     } catch (e, stackTrace) {
       developer.log(
@@ -317,7 +415,36 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
       developer.log('Received result from invite friends: $result');
 
       if (result != null && mounted) {
-        setState(() => _selectedFriends = result);
+        // Устанавливаем статус 'invited' для новых друзей
+        final updatedFriends = result.map((friend) {
+          // Проверяем, был ли этот друг уже в списке
+          final existingFriend = _selectedFriends.firstWhere(
+            (f) => f.userId == friend.userId,
+            orElse: () => Friend(
+              userId: -1,
+              username: '',
+              status: 'unknown',
+              isOutgoing: false,
+            ),
+          );
+
+          // Если друг новый, устанавливаем статус 'invited'
+          if (existingFriend.userId == -1) {
+            return Friend(
+              userId: friend.userId,
+              username: friend.username,
+              avatarUrl: friend.avatarUrl,
+              status:
+                  'invited', // Устанавливаем статус 'invited' для новых друзей
+              isOutgoing: friend.isOutgoing,
+            );
+          }
+
+          // Если друг уже был в списке, сохраняем его текущий статус
+          return existingFriend;
+        }).toList();
+
+        setState(() => _selectedFriends = updatedFriends);
         developer.log('Updated selected friends: $_selectedFriends');
       }
     } catch (e, stackTrace) {
@@ -329,23 +456,65 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
     }
   }
 
+  // Показать диалог подтверждения удаления участника
+  void _showRemoveParticipantDialog(Friend friend) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удаление участника'),
+        content: Text(
+            'Вы уверены, что хотите удалить ${friend.username} из встречи?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _removeParticipant(friend.userId);
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSelectedFriends() {
     if (_selectedFriends.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text(
-            'Приглашенные друзья',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Приглашенные друзья',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (widget.isEditing)
+                Text(
+                  'Удерживайте для удаления',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+            ],
           ),
         ),
-        Container(
+        SizedBox(
           height: 110, // Увеличиваем высоту для отображения статуса
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
@@ -358,95 +527,130 @@ class _CreateMeetupPageState extends State<CreateMeetupPage> {
               String? statusText;
 
               // Проверяем статус друга
-              switch (friend.status.toUpperCase()) {
-                case 'ACCEPTED':
+              switch (friend.status.toLowerCase()) {
+                case 'accepted':
                   statusColor = Colors.green;
                   statusText = 'Принято';
                   break;
-                case 'PENDING':
+                case 'invited':
                   statusColor = Colors.orange;
                   statusText = 'Ожидает';
                   break;
-                case 'DECLINED':
+                case 'declined':
                   statusColor = Colors.red;
                   statusText = 'Отклонено';
                   break;
               }
 
-              return Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Column(
-                  children: [
-                    Stack(
-                      children: [
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: statusText != null
-                                  ? statusColor
-                                  : AppTheme.accentColor,
-                              width: 2,
+              return GestureDetector(
+                // Показываем диалог удаления только для участников со статусом "принято" или "отклонено"
+                onLongPress: (widget.isEditing &&
+                        friend.status.toLowerCase() != 'invited')
+                    ? () => _showRemoveParticipantDialog(friend)
+                    : null,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Column(
+                    children: [
+                      Stack(
+                        children: [
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: statusText != null
+                                    ? statusColor
+                                    : AppTheme.accentColor,
+                                width: 2,
+                              ),
+                            ),
+                            child: ClipOval(
+                              child: friend.avatarUrl != null
+                                  ? Image.network(
+                                      friend.avatarUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
+                                        return Image.asset(
+                                          'assets/default_avatar.png',
+                                          fit: BoxFit.cover,
+                                        );
+                                      },
+                                    )
+                                  : Image.asset(
+                                      'assets/default_avatar.png',
+                                      fit: BoxFit.cover,
+                                    ),
                             ),
                           ),
-                          child: ClipOval(
-                            child: friend.avatarUrl != null
-                                ? Image.network(
-                                    friend.avatarUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Image.asset(
-                                        'assets/default_avatar.png',
-                                        fit: BoxFit.cover,
-                                      );
-                                    },
-                                  )
-                                : Image.asset(
-                                    'assets/default_avatar.png',
-                                    fit: BoxFit.cover,
+                          if (statusText != null && widget.isEditing)
+                            Positioned(
+                              right: 0,
+                              top: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: statusColor,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.person,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                              ),
+                            ),
+                          // Показываем кнопку удаления только для участников со статусом "принято" или "отклонено"
+                          if (widget.isEditing &&
+                              friend.status.toLowerCase() != 'invited')
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: GestureDetector(
+                                onTap: () =>
+                                    _showRemoveParticipantDialog(friend),
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 1,
+                                    ),
                                   ),
-                          ),
-                        ),
-                        if (statusText != null && widget.isEditing)
-                          Positioned(
-                            right: 0,
-                            top: 0,
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: statusColor,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.person,
-                                color: Colors.white,
-                                size: 12,
+                                  child: const Icon(
+                                    Icons.close,
+                                    color: Colors.white,
+                                    size: 10,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      friend.username,
-                      style: const TextStyle(fontSize: 12),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (statusText != null && widget.isEditing)
+                        ],
+                      ),
+                      const SizedBox(height: 4),
                       Text(
-                        statusText,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: statusColor,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        friend.username,
+                        style: const TextStyle(fontSize: 12),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                  ],
+                      if (statusText != null && widget.isEditing)
+                        Text(
+                          statusText,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: statusColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
                 ),
               );
             },

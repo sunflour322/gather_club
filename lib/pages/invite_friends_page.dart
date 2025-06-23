@@ -108,21 +108,47 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
     return friend.userId != -1 ? friend.status : null;
   }
 
+  // Проверяем, можно ли выбрать друга
+  bool _canSelectFriend(int userId) {
+    if (widget.initialSelectedFriends == null) return true;
+
+    // Находим друга в списке приглашенных, если он там есть
+    final existingFriend = widget.initialSelectedFriends!.firstWhere(
+      (f) => f.userId == userId,
+      orElse: () => Friend(
+          userId: -1, username: '', status: 'unknown', isOutgoing: false),
+    );
+
+    // Если друга нет в списке, его можно выбрать
+    if (existingFriend.userId == -1) return true;
+
+    // Если друг уже принял или отклонил приглашение, его нельзя выбрать
+    if (existingFriend.status.toLowerCase() == 'accepted' ||
+        existingFriend.status.toLowerCase() == 'declined') {
+      return false;
+    }
+
+    // Если друг имеет статус "invited" (ожидает), его можно выбрать повторно
+    // чтобы убрать из списка приглашенных
+    return existingFriend.status.toLowerCase() == 'invited';
+  }
+
   Widget _buildFriendItem(Friend friend) {
     final isSelected = _selectedFriendIds.contains(friend.userId);
     final status = _getFriendStatus(friend.userId);
+    final canSelect = _canSelectFriend(friend.userId);
 
     // Определяем цвет и текст статуса
     Color statusColor = AppTheme.accentColor;
     String? statusText;
 
     if (status != null) {
-      switch (status.toUpperCase()) {
+      switch (status.toLowerCase()) {
         case 'accepted':
           statusColor = Colors.green;
           statusText = 'Принято';
           break;
-        case 'pending':
+        case 'invited':
           statusColor = Colors.orange;
           statusText = 'Ожидает';
           break;
@@ -134,100 +160,103 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
     }
 
     return GestureDetector(
-      onTap: () => _toggleFriendSelection(friend.userId),
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: status != null
-                        ? statusColor
-                        : (isSelected
-                            ? AppTheme.accentColor
-                            : Colors.grey[300]!),
-                    width: 2,
-                  ),
-                ),
-                child: ClipOval(
-                  child: friend.avatarUrl != null
-                      ? Image.network(
-                          friend.avatarUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Image.asset(
-                              'assets/default_avatar.png',
-                              fit: BoxFit.cover,
-                            );
-                          },
-                        )
-                      : Image.asset(
-                          'assets/default_avatar.png',
-                          fit: BoxFit.cover,
-                        ),
-                ),
-              ),
-              if (isSelected)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: AppTheme.accentColor,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.check,
-                      color: Colors.white,
-                      size: 16,
+      onTap: canSelect ? () => _toggleFriendSelection(friend.userId) : null,
+      child: Opacity(
+        opacity: canSelect ? 1.0 : 0.5,
+        child: Column(
+          children: [
+            Stack(
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: status != null
+                          ? statusColor
+                          : (isSelected
+                              ? AppTheme.accentColor
+                              : Colors.grey[300]!),
+                      width: 2,
                     ),
                   ),
-                ),
-              if (status != null)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: statusColor,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.person,
-                      color: Colors.white,
-                      size: 12,
-                    ),
+                  child: ClipOval(
+                    child: friend.avatarUrl != null
+                        ? Image.network(
+                            friend.avatarUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Image.asset(
+                                'assets/default_avatar.png',
+                                fit: BoxFit.cover,
+                              );
+                            },
+                          )
+                        : Image.asset(
+                            'assets/default_avatar.png',
+                            fit: BoxFit.cover,
+                          ),
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            friend.username,
-            style: const TextStyle(fontSize: 14),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-          if (statusText != null)
+                if (isSelected)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentColor,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                if (status != null)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.person,
+                        color: Colors.white,
+                        size: 12,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
             Text(
-              statusText,
-              style: TextStyle(
-                fontSize: 12,
-                color: statusColor,
-                fontWeight: FontWeight.bold,
-              ),
+              friend.username,
+              style: const TextStyle(fontSize: 14),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
             ),
-        ],
+            if (statusText != null)
+              Text(
+                statusText,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: statusColor,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -262,13 +291,21 @@ class _InviteFriendsPageState extends State<InviteFriendsPage> {
         ),
         actions: [
           TextButton(
-            onPressed: _selectedFriendIds.isEmpty ? null : _confirmSelection,
+            // Кнопка активна, если есть выбранные друзья или если изначально были выбраны друзья
+            // (это позволяет подтвердить удаление всех приглашенных)
+            onPressed: (_selectedFriendIds.isNotEmpty ||
+                    (widget.initialSelectedFriends != null &&
+                        widget.initialSelectedFriends!.isNotEmpty))
+                ? _confirmSelection
+                : null,
             child: Text(
               'Готово (${_selectedFriendIds.length})',
               style: TextStyle(
-                color: _selectedFriendIds.isEmpty
-                    ? Colors.grey
-                    : AppTheme.accentColor,
+                color: (_selectedFriendIds.isNotEmpty ||
+                        (widget.initialSelectedFriends != null &&
+                            widget.initialSelectedFriends!.isNotEmpty))
+                    ? AppTheme.accentColor
+                    : Colors.grey,
               ),
             ),
           ),

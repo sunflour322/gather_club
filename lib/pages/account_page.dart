@@ -286,8 +286,8 @@ class _AccountPageState extends State<AccountPage> {
                   // Рамка профиля (если есть)
                   if (_profileFrameUrl != null)
                     Container(
-                      width: 110,
-                      height: 110,
+                      width: 105,
+                      height: 105,
                       decoration: BoxDecoration(
                         image: DecorationImage(
                           image: NetworkImage(_profileFrameUrl!),

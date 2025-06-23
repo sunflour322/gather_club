@@ -131,9 +131,11 @@ class _ChatPageState extends State<ChatPage>
         invitedMeetups = await _chatService.getInvitedMeetups();
         print('Загружено приглашений: ${invitedMeetups.length}');
 
-        // Фильтруем приглашения, исключая завершенные встречи
+        // Фильтруем приглашения, исключая завершенные и отмененные встречи
         invitedMeetups = invitedMeetups
-            .where((chat) => chat.meetupStatus != MeetupStatus.completed)
+            .where((chat) =>
+                chat.meetupStatus != MeetupStatus.completed &&
+                chat.meetupStatus != MeetupStatus.cancelled)
             .toList();
         print(
             'После фильтрации осталось приглашений: ${invitedMeetups.length}');
@@ -363,10 +365,12 @@ class _ChatPageState extends State<ChatPage>
     // Фильтруем чаты по статусу
     List<Chat> filteredChats = chats;
 
-    // Если это приглашения (showActions = true), отфильтровываем завершенные встречи
+    // Если это приглашения (showActions = true), отфильтровываем завершенные и отмененные встречи
     if (showActions) {
       filteredChats = chats
-          .where((chat) => chat.meetupStatus != MeetupStatus.completed)
+          .where((chat) =>
+              chat.meetupStatus != MeetupStatus.completed &&
+              chat.meetupStatus != MeetupStatus.cancelled)
           .toList();
 
       print(
@@ -859,8 +863,10 @@ class _ChatPageState extends State<ChatPage>
       };
 
       // Создаем объект с данными о месте
+      // Поскольку в классе Chat нет свойства placeId, используем ID из объекта place в meetupToEdit
+      // или null, если ID места не найден
       final selectedPlace = {
-        'id': chat.meetupId,
+        'id': null, // ID места будет определен на странице редактирования
         'name': chat.placeName ?? 'Неизвестное место',
         'address': chat.placeAddress,
         'latitude': chat.latitude,
